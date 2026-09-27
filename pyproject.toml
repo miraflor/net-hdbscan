@@ -1,0 +1,41 @@
+[build-system]
+requires = ["setuptools>=69", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "net-hdbscan"
+dynamic = ["version"]
+description = "HDBSCAN* clustering of geospatial points by shortest-path distance on a spatial network"
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+authors = [{ name = "James Matthew Miraflor" }]
+dependencies = [
+    "geopandas>=1.0",
+    "numpy>=1.26",
+    "pandas>=2.0",
+    "pyogrio>=0.9",
+    "scipy>=1.11",
+    "shapely>=2.1",
+]
+
+[project.optional-dependencies]
+# (Geo)Parquet input and output: cluster_files, cluster_files_by_column, read_vector on .parquet
+files = ["pyarrow>=15"]
+# The net-hdbscan command (writes GeoParquet, so it includes pyarrow)
+cli = ["pyarrow>=15", "typer>=0.12"]
+dev = ["pyarrow>=15", "typer>=0.12", "pytest>=8", "scikit-learn>=1.3"]
+
+[project.scripts]
+net-hdbscan = "net_hdbscan._cli_entry:main"
+
+[tool.setuptools.dynamic]
+version = { attr = "net_hdbscan._version.__version__" }
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
+pythonpath = ["src"]

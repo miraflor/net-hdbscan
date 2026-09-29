@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 900 420" role="img" aria-labelledby="t d">
+<title id="t">Snapping observations and compressing duplicate positions</title>
+<desc id="d">Raw points are snapped to a line network. Three observations share one snapped position and become a single weighted position.</desc>
+<style>
+text{font-family:system-ui,-apple-system,Segoe UI,sans-serif;fill:#222}.road{stroke:#555;stroke-width:12;fill:none;stroke-linecap:round}.raw{fill:#f59f00;stroke:#8a4b00;stroke-width:2}.snap{fill:#1971c2;stroke:#0b3d68;stroke-width:3}.arrow{stroke:#888;stroke-width:2;stroke-dasharray:6 5;marker-end:url(#a)}.label{font-size:25px;font-weight:700}.small{font-size:20px;fill:#444}.box{fill:#f8f9fa;stroke:#adb5bd;stroke-width:2}
+</style>
+<defs><marker id="a" markerWidth="10" markerHeight="10" refX="7" refY="3" orient="auto"><path d="M0,0 L0,6 L8,3 z" fill="#888"/></marker></defs>
+<path class="road" d="M100 255 H800"/>
+<circle class="raw" cx="190" cy="145" r="10"/><circle class="raw" cx="300" cy="175" r="10"/>
+<circle class="raw" cx="500" cy="120" r="10"/><circle class="raw" cx="520" cy="150" r="10"/><circle class="raw" cx="540" cy="105" r="10"/>
+<circle class="raw" cx="690" cy="170" r="10"/>
+<line class="arrow" x1="190" y1="157" x2="190" y2="240"/><line class="arrow" x1="300" y1="187" x2="300" y2="240"/>
+<line class="arrow" x1="500" y1="132" x2="520" y2="240"/><line class="arrow" x1="520" y1="162" x2="520" y2="240"/><line class="arrow" x1="540" y1="117" x2="520" y2="240"/>
+<line class="arrow" x1="690" y1="182" x2="690" y2="240"/>
+<circle class="snap" cx="190" cy="255" r="10"/><circle class="snap" cx="300" cy="255" r="10"/><circle class="snap" cx="520" cy="255" r="14"/><circle class="snap" cx="690" cy="255" r="10"/>
+<rect class="box" x="430" y="290" width="180" height="74" rx="10"/>
+<text class="label" x="459" y="323">weight = 3</text><text class="small" x="447" y="348">one network position</text>
+<text class="small" x="100" y="395">Compression saves work; multiplicity is preserved as weight.</text>
+</svg>

@@ -4,6 +4,8 @@
 
 It is a clustering-only package. It does not construct Voronoi territories or other downstream partitions.
 
+For a visual, step-by-step explanation of the algorithm—including network distance, snapping, sparse neighbour search, mutual reachability, the minimum spanning forest, tie-invariant hierarchy construction, condensation and cluster extraction—see **[How `net-hdbscan` works](HOW_IT_WORKS.md)**.
+
 ```text
 point layer
     ↓

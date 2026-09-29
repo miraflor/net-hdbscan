@@ -1,0 +1,23 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 900 420" role="img" aria-labelledby="t d">
+<title id="t">Mutual reachability graph reduced to a minimum spanning forest</title>
+<desc id="d">Two disconnected groups of position vertices show many weighted edges on the left and only the forest edges on the right.</desc>
+<style>
+text{font-family:system-ui,-apple-system,Segoe UI,sans-serif;fill:#222}.edge{stroke:#adb5bd;stroke-width:4}.keep{stroke:#0b7285;stroke-width:6}.pt{fill:#fff;stroke:#111;stroke-width:3}.head{font-size:25px;font-weight:700}.small{font-size:18px;fill:#444}.w{font-size:17px}
+</style>
+<text class="head" x="115" y="45">finite mutual-reachability graph</text><text class="head" x="560" y="45">minimum spanning forest</text>
+<!-- left component 1 -->
+<line class="edge" x1="120" y1="150" x2="220" y2="100"/><line class="edge" x1="120" y1="150" x2="225" y2="215"/><line class="edge" x1="220" y1="100" x2="225" y2="215"/>
+<line class="edge" x1="225" y1="215" x2="325" y2="155"/><line class="edge" x1="220" y1="100" x2="325" y2="155"/>
+<!-- left component 2 -->
+<line class="edge" x1="145" y1="315" x2="255" y2="290"/><line class="edge" x1="255" y1="290" x2="335" y2="345"/><line class="edge" x1="145" y1="315" x2="335" y2="345"/>
+<!-- right forest -->
+<line class="keep" x1="565" y1="150" x2="665" y2="100"/><line class="keep" x1="565" y1="150" x2="670" y2="215"/><line class="keep" x1="670" y1="215" x2="770" y2="155"/>
+<line class="keep" x1="590" y1="315" x2="700" y2="290"/><line class="keep" x1="700" y1="290" x2="780" y2="345"/>
+<g class="pts">
+<circle class="pt" cx="120" cy="150" r="11"/><circle class="pt" cx="220" cy="100" r="11"/><circle class="pt" cx="225" cy="215" r="11"/><circle class="pt" cx="325" cy="155" r="11"/>
+<circle class="pt" cx="145" cy="315" r="11"/><circle class="pt" cx="255" cy="290" r="11"/><circle class="pt" cx="335" cy="345" r="11"/>
+<circle class="pt" cx="565" cy="150" r="11"/><circle class="pt" cx="665" cy="100" r="11"/><circle class="pt" cx="670" cy="215" r="11"/><circle class="pt" cx="770" cy="155" r="11"/>
+<circle class="pt" cx="590" cy="315" r="11"/><circle class="pt" cx="700" cy="290" r="11"/><circle class="pt" cx="780" cy="345" r="11"/>
+</g>
+<text class="small" x="505" y="398">Disconnected components form separate trees.</text>
+</svg>

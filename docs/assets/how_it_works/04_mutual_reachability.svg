@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 900 420" role="img" aria-labelledby="t d">
+<title id="t">Mutual reachability distance</title>
+<desc id="d">Two network positions have path distance 6 and core distances 4 and 9, so their mutual reachability distance is 9.</desc>
+<style>
+text{font-family:system-ui,-apple-system,Segoe UI,sans-serif;fill:#222}.road{stroke:#555;stroke-width:12;fill:none;stroke-linecap:round}.seg{stroke:#1971c2;stroke-width:6;fill:none}.coreA{stroke:#2b8a3e;stroke-width:5}.coreB{stroke:#9c36b5;stroke-width:5}.tick{stroke-width:3}.pt{fill:#fff;stroke:#111;stroke-width:4}.label{font-size:26px;font-weight:700}.small{font-size:21px;fill:#444}.eq{font-size:26px;font-weight:600}
+</style>
+<text class="eq" x="180" y="65">d_mreach(A,B) = max(4, 9, 6) = 9</text>
+<path class="road" d="M120 250 H780"/>
+<line class="seg" x1="320" y1="250" x2="500" y2="250"/>
+<circle class="pt" cx="320" cy="250" r="12"/><circle class="pt" cx="500" cy="250" r="12"/>
+<text class="label" x="292" y="235">A</text><text class="label" x="510" y="235">B</text>
+<text class="small" x="355" y="225">d_G(A,B)=6</text>
+<!-- Core-distance intervals along the network, drawn above the road -->
+<line class="coreA" x1="250" y1="150" x2="390" y2="150"/><line class="coreA tick" x1="250" y1="138" x2="250" y2="162"/><line class="coreA tick" x1="390" y1="138" x2="390" y2="162"/>
+<text class="small" x="267" y="132">core(A)=4</text>
+<line class="coreB" x1="405" y1="110" x2="705" y2="110"/><line class="coreB tick" x1="405" y1="98" x2="405" y2="122"/><line class="coreB tick" x1="705" y1="98" x2="705" y2="122"/>
+<text class="small" x="505" y="92">core(B)=9</text>
+<text class="small" x="255" y="345">Core distances are measured along the network.</text>
+</svg>

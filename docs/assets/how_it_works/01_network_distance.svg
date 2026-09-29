@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 900 420" role="img" aria-labelledby="t d">
+<title id="t">Network distance versus Euclidean distance</title>
+<desc id="d">Two points are close in straight-line distance but must travel around a U-shaped network to reach one another.</desc>
+<style>
+text{font-family:system-ui,-apple-system,Segoe UI,sans-serif;fill:#222}.road{stroke:#555;stroke-width:14;stroke-linecap:round;stroke-linejoin:round;fill:none}.route{stroke:#0b7285;stroke-width:7;stroke-linecap:round;stroke-linejoin:round;fill:none}.euclid{stroke:#c92a2a;stroke-width:3;stroke-dasharray:10 8}.pt{fill:#fff;stroke:#111;stroke-width:4}.small{font-size:22px}.label{font-size:27px;font-weight:700}.note{font-size:20px;fill:#444}
+</style>
+<path class="road" d="M180 90 H690 M180 90 V330 H690"/>
+<path class="route" d="M650 90 H180 V330 H650"/>
+<line class="euclid" x1="650" y1="90" x2="650" y2="330"/>
+<circle class="pt" cx="650" cy="90" r="13"/><circle class="pt" cx="650" cy="330" r="13"/>
+<text class="label" x="676" y="100">A</text><text class="label" x="676" y="340">B</text>
+<text class="small" x="690" y="215">short Euclidean</text><text class="small" x="690" y="244">distance</text>
+<text class="small" x="275" y="215">clustering distance follows the network</text>
+<text class="note" x="180" y="385">d_G(A,B) is the highlighted route length, not the dashed shortcut.</text>
+</svg>

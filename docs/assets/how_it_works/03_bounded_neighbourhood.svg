@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 900 420" role="img" aria-labelledby="t d">
+<title id="t">Bounded network neighbour search</title>
+<desc id="d">A source position reaches only positions whose shortest path along the network is within the maximum-distance horizon.</desc>
+<style>
+text{font-family:system-ui,-apple-system,Segoe UI,sans-serif;fill:#222}.road{stroke:#666;stroke-width:10;fill:none;stroke-linecap:round}.inside{stroke:#2b8a3e;stroke-width:10;fill:none;stroke-linecap:round}.source{fill:#fff;stroke:#111;stroke-width:4}.near{fill:#2b8a3e}.far{fill:#adb5bd}.label{font-size:24px;font-weight:700}.small{font-size:20px;fill:#444}.dash{stroke:#777;stroke-width:2;stroke-dasharray:7 7;fill:none}
+</style>
+<path class="road" d="M120 220 H780 M320 220 V85 M570 220 V355"/>
+<path class="inside" d="M390 220 H610 M500 220 V355"/>
+<circle class="source" cx="500" cy="220" r="14"/><text class="label" x="520" y="205">source</text>
+<circle class="near" cx="420" cy="220" r="10"/><circle class="near" cx="585" cy="220" r="10"/><circle class="near" cx="500" cy="325" r="10"/>
+<circle class="far" cx="190" cy="220" r="10"/><circle class="far" cx="320" cy="100" r="10"/><circle class="far" cx="745" cy="220" r="10"/>
+<ellipse class="dash" cx="500" cy="220" rx="175" ry="165"/>
+<text class="small" x="570" y="85">Euclidean bounds only</text><text class="small" x="570" y="110">localize computation;</text><text class="small" x="570" y="135">distance stays network-based</text>
+<text class="small" x="120" y="395">Only pairs with d_G ≤ max_distance are stored in the sparse neighbour graph.</text>
+</svg>

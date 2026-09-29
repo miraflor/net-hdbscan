@@ -408,3 +408,6 @@ tbody tr:nth-child(even) { background: #fafbfb; }
   h2 { font-size: 24px; }
   table { display: block; overflow-x: auto; }
 }
+
+/* Visual tutorial additions */
+.lede{font-size:18px;line-height:1.72;color:#3f4a50;margin-bottom:24px}.admonition{margin:24px 0 30px;padding:16px 18px;border-left:4px solid #6ab0de;background:#eef6fb}.stage-list{margin:28px 0 36px;padding:18px 21px;border:1px solid #e1e4e5;border-radius:5px;background:#fafbfb}.stage-list ol{margin-top:10px;margin-bottom:0}.equation{overflow-x:auto;margin:22px 0 26px;padding:10px 16px;border-top:1px solid #e1e4e5;border-bottom:1px solid #e1e4e5;text-align:center}.tutorial-figure{margin:32px auto 42px;max-width:980px}.tutorial-figure img{width:100%;max-height:620px;object-fit:contain;margin:0 auto;border:1px solid #e3e7e9;border-radius:4px;background:#fff}.tutorial-figure figcaption{margin-top:10px;color:#66747b;font-size:13.5px;line-height:1.5;text-align:center}.worked-values{margin-top:24px;margin-bottom:34px}.doc-content h2{margin-top:58px}@media(max-width:700px){.lede{font-size:16px}.tutorial-figure{margin:24px 0 34px}.tutorial-figure figcaption{text-align:left}}

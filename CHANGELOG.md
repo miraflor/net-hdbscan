@@ -1,8 +1,11 @@
 # Changelog
 
-## Unreleased
+## 0.2.0 — 2026-09-30
 
 - Breaking: remove study-area boundary filtering from the CLI and Python/file APIs. `net-hdbscan` now clusters every supplied point; geographic eligibility filtering belongs upstream.
+- Add a visual algorithm guide covering network distance, snapping, core distance, mutual reachability, the minimum spanning forest, hierarchy construction, condensation, stability, cluster extraction, and the `max_distance` search horizon.
+- Publish the documentation through GitHub Pages.
+- Keep the clustering model, grouped execution, adaptive distance search, diagnostics, hierarchy outputs, and sparse-distance safeguards unchanged.
 
 ## 0.1.0 — 2026-09-27
 

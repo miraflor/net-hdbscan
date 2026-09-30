@@ -18,7 +18,7 @@ HDBSCAN*
 clustered points + hierarchy + diagnostics
 ```
 
-Version 0.1.0 is the initial standalone release. It contains its own network-distance engine, sparse HDBSCAN* implementation, grouped execution pipeline and diagnostics. Territory/Voronoi construction is outside the package scope. The implementation does not require PySAL `spaghetti` or an external HDBSCAN package.
+Version 0.2.0 removes study-area boundary handling so the package has a narrower contract: the supplied points and spatial network are the complete clustering inputs. Geographic eligibility filtering belongs upstream. The package retains its network-distance engine, sparse HDBSCAN* implementation, grouped execution pipeline, adaptive distance search, hierarchy outputs and diagnostics.
 
 ## Install
 

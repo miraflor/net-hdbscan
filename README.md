@@ -59,7 +59,15 @@ net-hdbscan cluster `
 
 ## Network distance
 
-If observation `i` snaps to network position `s_i` and observation `j` snaps to `s_j`, the clustering distance is the shortest-path length on the supplied network between those snapped positions. Point-to-network snap distance is not added to this metric; it is reported separately for quality assurance. Observations on disconnected components have no finite path between them.
+If observation $`i`$ snaps to network position $`s_i`$ and observation $`j`$ snaps to $`s_j`$, the clustering distance is the shortest-path length on the supplied network between those snapped positions. Point-to-network snap distance is not added to this metric; it is reported separately for quality assurance. Observations on disconnected components have no finite path between them.
+
+In symbols, with $`x_i`$ the original point, $`N`$ the set of all locations on the network, and $`d_N`$ shortest-path length on the network:
+
+```math
+s_i = \arg\min_{z \in N} \lVert x_i - z \rVert, \qquad d(i, j) = d_N(s_i, s_j),
+```
+
+where $`d(i, j) = \infty`$ when $`s_i`$ and $`s_j`$ lie on different network components, and the reported snap distance is $`\lVert x_i - s_i \rVert`$. Each point is snapped to the nearest point of the nearest arc; ties between equally near arcs go to the smallest arc index.
 
 The network CRS must be projected. All distance parameters are expressed in that CRS's linear units. Points are reprojected to the network CRS.
 
@@ -69,15 +77,67 @@ Lines join only where they share a vertex after coordinate canonicalization. A g
 
 `min_cluster_size` is the smallest group retained as a cluster. `min_samples` controls the core-distance density estimate and defaults to `min_cluster_size`. The package supports `eom` and `leaf` cluster selection, `cluster_selection_epsilon`, `max_cluster_size`, `allow_single_cluster`, and a `core_distance_floor` for limiting the influence of very large stacks of co-located observations.
 
+### Positions and weights
+
 Several observations at one exact snapped network position are compressed to one position during the network search. With `--duplicates count` (default), their multiplicity is retained as HDBSCAN weight. With `--duplicates once`, each distinct position counts once.
 
+Each distinct position $`p`$ therefore has a weight $`w_p`$: the number of observations at $`p`$ with `--duplicates count`, or $`w_p = 1`$ with `--duplicates once`. Every cluster size below, including the sizes compared with `min_cluster_size` and `max_cluster_size`, is a sum of these weights.
+
+### Core distance
+
+The core distance of a position is the smallest network distance within which the total weight, counting the position's own weight, reaches $`k`$ = `min_samples`:
+
+```math
+\mathrm{core}(p) = \min \Bigl\{\, r \ge 0 \;:\; \sum_{q \,:\, d(p, q) \le r} w_q \;\ge\; k \,\Bigr\}.
+```
+
+It is $`0`$ when $`w_p \ge k`$, and $`\infty`$ when the total weight within the search horizon stays below $`k`$ (see [`max_distance`](#max_distance)). A positive `core_distance_floor` $`f`$ raises every smaller core distance to $`f`$, so each core distance becomes $`\max\bigl(\mathrm{core}(p), f\bigr)`$. With the default $`f = 0`$, the result is standard HDBSCAN*.
+
+### Mutual reachability and the hierarchy
+
+For two positions within the search horizon of each other, the mutual reachability distance is
+
+```math
+d_{\mathrm{mr}}(p, q) = \max\bigl(\mathrm{core}(p),\ \mathrm{core}(q),\ d(p, q)\bigr).
+```
+
+Pairs farther apart than the horizon, and pairs that involve an infinite core distance, have no mutual-reachability edge. The hierarchy is built from the minimum spanning forest of these edges and is expressed with $`\lambda = 1/\text{distance}`$ ($`\lambda = \infty`$ at distance 0). It is a forest rather than a tree because a truncated graph can be disconnected; all its components are joined under one root at $`\lambda = 0`$.
+
 The HDBSCAN* implementation is included in this package because a truncated sparse network-distance graph can be disconnected and can leave rows with fewer than `min_samples` stored neighbours. The implementation uses a deterministic multifurcation treatment for equal mutual-reachability distances rather than allowing arbitrary binary tie ordering to determine the hierarchy.
+
+### Cluster selection and membership
+
+The stability of a cluster $`C`$ sums, over its positions, how long each stays in $`C`$ on the $`\lambda`$ scale:
+
+```math
+S(C) = \sum_{p \in C} w_p \bigl(\lambda_p - \lambda_{\mathrm{birth}}(C)\bigr),
+```
+
+where $`\lambda_{\mathrm{birth}}(C)`$ is the $`\lambda`$ at which $`C`$ appears and $`\lambda_p`$ is the $`\lambda`$ at which $`p`$ leaves $`C`$, either as noise or into a child cluster. With `eom`, a cluster is selected when its stability is at least the summed stability of its selected descendants, and a cluster larger than `max_cluster_size` is not selected. With `leaf`, the clusters without child clusters are selected. `cluster_selection_epsilon` and `allow_single_cluster` have scikit-learn's meaning.
+
+The membership strength of an observation at position $`p`$ in its selected cluster $`C`$ is
+
+```math
+\mathrm{membership}(p) = \frac{\min\bigl(\lambda_p,\ \lambda_{\max}(C)\bigr)}{\lambda_{\max}(C)},
+```
+
+where $`\lambda_{\max}(C)`$ is the largest $`\lambda`$ reached in $`C`$. It is 1 when $`\lambda_{\max}(C) = 0`$ or $`\lambda_p = \infty`$, and 0 for noise.
 
 ## `max_distance`
 
 `max_distance` is a **search/truncation horizon**, not DBSCAN's `eps`. Network pairs farther apart are not measured. The hierarchy is exact below that horizon; the program has no distance information above it.
 
+In symbols, a search with radius $`r`$ stores exactly the pairs of positions with $`d(p, q) \le r`$; every other pair is treated as infinitely far apart.
+
 In `--distance-mode fixed`, the specified value is used exactly. In `--distance-mode adaptive`, it is a hard ceiling. The search begins at a smaller radius and grows geometrically. It can stop when two consecutive successful radii give the same flat cluster IDs/noise labels and membership values while the share of otherwise-resolvable observations with truncated core distance is at or below `--core-truncation-tolerance`.
+
+The adaptive radii are
+
+```math
+r_0 = \frac{R}{g^{\,s-1}}, \qquad r_{t+1} = \min\bigl(R,\; g\, r_t\bigr),
+```
+
+where $`R`$ is `max_distance`, $`g`$ is `--distance-growth` (default 1.5) and $`s`$ is `--distance-steps` (default 4). `--min-distance` replaces $`r_0`$ when it is given, and a positive `core_distance_floor` keeps $`r_0`$ above that floor. With the defaults, the radii are $`0.30R`$, $`0.44R`$, $`0.67R`$ and $`R`$. The default `--core-truncation-tolerance` is 0.01, and membership values are compared within `--stability-tolerance` (default $`10^{-12}`$).
 
 The adaptive status `converged` therefore means **local flat-result stability under that diagnostic rule**. It is not a proof that every larger radius would give the same clustering. `distance_trace.csv` records every trial so the selection can be audited.
 

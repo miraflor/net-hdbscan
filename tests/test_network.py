@@ -148,7 +148,7 @@ def test_invalid_max_distance():
 
 def test_positions_and_distances_do_not_depend_on_observation_order():
     """Position numbers, representatives and distances are the same, bit for bit, after reordering."""
-    points, _, roads = irregular_network_data(seed=0)
+    points, roads = irregular_network_data(seed=0)
     graph = build_network_graph(roads.geometry.to_numpy())
     xy = shapely.get_coordinates(points.geometry.to_numpy())
     xy = np.vstack([xy, xy[:20], graph.vertex_xy[:15] + 0.1])  # stacked observations and vertex positions

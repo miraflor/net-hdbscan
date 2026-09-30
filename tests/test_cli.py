@@ -11,7 +11,6 @@ def base_args(files, out_dir):
     return [
         "cluster",
         "--points", str(files["points"]),
-        "--boundary", str(files["boundary"]),
         "--network", str(files["roads"]),
         "--output-dir", str(out_dir),
         "--max-distance", "600",
@@ -84,10 +83,8 @@ def test_cli_warns_when_the_pair_limit_stops_the_search(files, tmp_path):
     assert "WARNING" in result.stdout and "max_neighbor_pairs" in result.stdout
 
 
-def test_cli_runs_without_a_boundary(files, tmp_path):
-    args = [a for a in base_args(files, tmp_path / "out")]
-    at = args.index("--boundary")
-    del args[at : at + 2]
-    result = runner.invoke(app, args)
-    assert result.exit_code == 0, result.output
-    assert (tmp_path / "out" / "cluster_table.parquet").exists()
+def test_cluster_help_has_no_boundary_options():
+    result = runner.invoke(app, ["cluster", "--help"])
+    assert result.exit_code == 0
+    assert "--boundary" not in result.stdout
+    assert "--boundary-layer" not in result.stdout

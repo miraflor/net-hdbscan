@@ -6,7 +6,6 @@ import geopandas as gpd
 import numpy as np
 import pytest
 import shapely
-from shapely.geometry import Polygon
 
 CRS = "EPSG:32651"
 
@@ -48,10 +47,6 @@ def roads() -> gpd.GeoDataFrame:
     return gpd.GeoDataFrame(geometry=grid_segments(), crs=CRS)
 
 
-@pytest.fixture
-def boundary() -> gpd.GeoDataFrame:
-    return gpd.GeoDataFrame(geometry=[Polygon([(-50, -50), (2050, -50), (2050, 2050), (-50, 2050)])], crs=CRS)
-
 
 @pytest.fixture
 def points() -> gpd.GeoDataFrame:
@@ -59,16 +54,14 @@ def points() -> gpd.GeoDataFrame:
 
 
 @pytest.fixture
-def files(tmp_path, roads, boundary, points):
+def files(tmp_path, roads, points):
     """The fixtures written to GeoParquet files."""
     pytest.importorskip("pyarrow")
     paths = {
         "roads": tmp_path / "roads.parquet",
-        "boundary": tmp_path / "boundary.parquet",
         "points": tmp_path / "points.parquet",
     }
     roads.to_parquet(paths["roads"])
-    boundary.to_parquet(paths["boundary"])
     points.to_parquet(paths["points"])
     return paths
 
@@ -76,7 +69,7 @@ def files(tmp_path, roads, boundary, points):
 def irregular_network_data(seed: int = 0, n: int = 21, step: float = 150.0, jitter: float = 20.0, n_points: int = 700):
     """A jittered grid (segment lengths are not round numbers) with two blobs and scattered points.
 
-    Returns ``(points, boundary, roads)``. On such a network, the last bits of
+    Returns ``(points, roads)``. On such a network, the last bits of
     a computed distance can depend on which end of a pair starts the search,
     so it exposes any dependence of results on observation order or IDs.
     """
@@ -97,7 +90,4 @@ def irregular_network_data(seed: int = 0, n: int = 21, step: float = 150.0, jitt
         ]
     )
     points = gpd.GeoDataFrame({"point_id": [f"q{i:04d}" for i in range(len(xy))]}, geometry=shapely.points(xy), crs=CRS)
-    boundary = gpd.GeoDataFrame(
-        geometry=[Polygon([(-100, -100), (extent + 100, -100), (extent + 100, extent + 100), (-100, extent + 100)])], crs=CRS
-    )
-    return points, boundary, roads
+    return points, roads

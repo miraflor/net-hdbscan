@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- Breaking: remove study-area boundary filtering from the CLI and Python/file APIs. `net-hdbscan` now clusters every supplied point; geographic eligibility filtering belongs upstream.
+
 ## 0.1.0 — 2026-09-27
 
 Initial standalone release of `net-hdbscan`.

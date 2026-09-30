@@ -7,11 +7,9 @@ It is a clustering-only package. It does not construct Voronoi territories or ot
 For a visual, step-by-step explanation of the algorithm—including network distance, snapping, sparse neighbour search, mutual reachability, the minimum spanning forest, tie-invariant hierarchy construction, condensation and cluster extraction—see the **[net-hdbscan documentation site](https://miraflor.github.io/net-hdbscan/)**.
 
 ```text
-point layer
+point layer + supplied line network
     ↓
-filter to polygon boundary (optional)
-    ↓
-snap retained points to the line network
+snap points to the line network
     ↓
 compute sparse shortest-path distances up to a bounded horizon
     ↓
@@ -37,7 +35,6 @@ The core (network distances, HDBSCAN* and the in-memory pipeline `cluster_geodat
 ```powershell
 net-hdbscan cluster `
   --points "data\points.parquet" `
-  --boundary "data\boundary.gpkg" --boundary-layer boundary `
   --network "data\roads.gpkg" --network-layer roads `
   --point-id-col canonical_id `
   --max-distance 3000 `
@@ -50,7 +47,6 @@ For grouped data:
 ```powershell
 net-hdbscan cluster `
   --points "data\points.parquet" `
-  --boundary "data\boundary.gpkg" --boundary-layer boundary `
   --network "data\roads.gpkg" --network-layer roads `
   --point-id-col canonical_id `
   --group-col industry_code `
@@ -65,7 +61,7 @@ net-hdbscan cluster `
 
 If observation `i` snaps to network position `s_i` and observation `j` snaps to `s_j`, the clustering distance is the shortest-path length on the supplied network between those snapped positions. Point-to-network snap distance is not added to this metric; it is reported separately for quality assurance. Observations on disconnected components have no finite path between them.
 
-The network CRS must be projected. All distance parameters are expressed in that CRS's linear units. Points and the boundary are reprojected to the network CRS.
+The network CRS must be projected. All distance parameters are expressed in that CRS's linear units. Points are reprojected to the network CRS.
 
 Lines join only where they share a vertex after coordinate canonicalization. A geometric crossing without a shared vertex is not connected. MultiLineString parts are exploded and do not acquire artificial links to one another.
 
@@ -165,7 +161,6 @@ from net_hdbscan import HDBSCANConfig, cluster_geodataframes
 
 out = cluster_geodataframes(
     points=gpd.read_parquet("points.parquet"),
-    boundary=gpd.read_file("boundary.gpkg"),
     network=gpd.read_file("roads.gpkg"),
     config=HDBSCANConfig(max_distance=3000, min_cluster_size=20),
     point_id_col="canonical_id",
@@ -178,8 +173,6 @@ out.summary
 out.trace
 ```
 
-`boundary` may be `None`: then every point is clustered. The boundary only selects points; it never clips the network. The same holds for `boundary_path` in `cluster_files` and `cluster_files_by_column`, and for `--boundary` on the command line.
-
 Lower-level functions are also public: `build_network_graph` (returns a `NetworkGraph`), `snap_points`, `distinct_positions`, `neighbor_graph` (sparse matrix of network distances up to a limit), and `hdbscan` (HDBSCAN* on any symmetric sparse distance matrix, with optional positive-integer weights). The implementation module is `net_hdbscan.sparse_hdbscan`.
 
 ## Determinism and validation
@@ -190,11 +183,13 @@ Core distances use a partial selection on long rows: a position needs at most `m
 
 The lower-level sparse HDBSCAN API validates the sparse representation before clustering: the matrix must be square and symmetric (including stored zero entries), each ordered pair may be stored at most once, stored distances must be finite and non-negative, and optional weights must be finite positive integers. This avoids silent duplicate summation or weight truncation.
 
-The repository collects 112 tests covering network topology and snapping against independent brute-force references, bounded shortest-path neighbours, pair/chunk limits, HDBSCAN* comparisons with scikit-learn, malformed sparse graph rejection, weighted duplicate positions, tie-heavy cases, row/ID invariance, adaptive-radius behavior, grouped missing-value policies and sentinel collisions, group universes, per-group overrides, manifests, and CLI/file outputs.
+The repository test suite covers network topology and snapping against independent brute-force references, bounded shortest-path neighbours, pair/chunk limits, HDBSCAN* comparisons with scikit-learn, malformed sparse graph rejection, weighted duplicate positions, tie-heavy cases, row/ID invariance, adaptive-radius behavior, grouped missing-value policies and sentinel collisions, group universes, per-group overrides, manifests, and CLI/file outputs.
 
 The release was validated with fixed and adaptive regression runs on a production-scale spatial-network dataset. Point labels, noise flags, membership, core distances, snapped positions, hierarchy and adaptive trial records were stable across the reference runs; runtime fields were treated as non-deterministic diagnostics.
 
 ## Scope
+
+`net-hdbscan` clusters every supplied point. Study-area filtering or other eligibility filtering belongs upstream of the package.
 
 `net-hdbscan` does not build a network from an external service, infer or repair uncertain topology, construct Voronoi territories, choose substantive group categories, or claim that adaptive local stability proves global invariance to larger search horizons.
 

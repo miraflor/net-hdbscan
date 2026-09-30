@@ -28,8 +28,6 @@ from .config import (
 from .sparse_hdbscan import hdbscan
 from .io import (
     canonical_order,
-    covered_by,
-    prepare_boundary,
     prepare_network,
     prepare_points,
     read_vector,
@@ -162,14 +160,14 @@ def _empty_hierarchy() -> pd.DataFrame:
 
 
 def _cluster_unit(
-    inside: gpd.GeoDataFrame,
+    points: gpd.GeoDataFrame,
     snaps: Snaps,
     graph: NetworkGraph,
     config: HDBSCANConfig,
 ) -> tuple[gpd.GeoDataFrame, pd.DataFrame, pd.DataFrame, dict[str, Any]]:
-    """Cluster points that are already inside the boundary and in canonical order."""
-    n = len(inside)
-    out = inside.copy()
+    """Cluster points in canonical order."""
+    n = len(points)
+    out = points.copy()
     stats: dict[str, Any] = {"n_points": n}
     if n == 0:
         for column, dtype in [("cluster_id", object), ("is_noise", bool), ("membership", float), ("core_distance", float)]:
@@ -286,25 +284,12 @@ def _check_snap_distance(ids, distances: np.ndarray, limit: float | None) -> Non
         )
 
 
-def _prepare(network: gpd.GeoDataFrame, boundary: gpd.GeoDataFrame | None):
-    """Checked network, its CRS, and the boundary union in that CRS (None without a boundary)."""
-    network = prepare_network(network)
-    return network, network.crs, (None if boundary is None else prepare_boundary(boundary, network.crs))
-
-
-def _inside(work: gpd.GeoDataFrame, boundary_geom) -> np.ndarray:
-    """Rows covered by the boundary; every row when there is no boundary."""
-    if boundary_geom is None:
-        return np.ones(len(work), dtype=bool)
-    return covered_by(work, boundary_geom)
-
-
-def _snap_inside(network: gpd.GeoDataFrame, inside: gpd.GeoDataFrame, vertex_digits: int | None):
+def _snap_points_to_network(network: gpd.GeoDataFrame, points: gpd.GeoDataFrame, vertex_digits: int | None):
     """Build the network graph and snap the points (graph is None when there are no points)."""
-    if len(inside) == 0:
+    if len(points) == 0:
         return None, empty_snaps()
     graph = build_network_graph(network.geometry.to_numpy(), vertex_digits=vertex_digits)
-    return graph, snap_points(graph, shapely.get_coordinates(inside.geometry.to_numpy()))
+    return graph, snap_points(graph, shapely.get_coordinates(points.geometry.to_numpy()))
 
 
 def _adaptive_start_distance(config: HDBSCANConfig) -> float:
@@ -387,7 +372,7 @@ def _trace_row(trial: int, radius: float, outcome: str, stats: dict[str, Any] | 
 
 
 def _cluster_unit_with_distance_search(
-    inside: gpd.GeoDataFrame,
+    points: gpd.GeoDataFrame,
     snaps: Snaps,
     graph: NetworkGraph,
     config: HDBSCANConfig,
@@ -431,16 +416,16 @@ def _cluster_unit_with_distance_search(
         )
         return points, table, hierarchy, stats, pd.DataFrame(trace, columns=TRACE_COLUMNS)
 
-    if config.distance_mode == "fixed" or len(inside) == 0:
+    if config.distance_mode == "fixed" or len(points) == 0:
         began = time.perf_counter()
-        result = _cluster_unit(inside, snaps, graph, config)
-        if len(inside):
+        result = _cluster_unit(points, snaps, graph, config)
+        if len(points):
             trace.append(_trace_row(1, config.max_distance, "ok", result[3], np.nan, time.perf_counter() - began))
         return finish(
             result,
             radius=config.max_distance,
-            status="fixed" if len(inside) else "empty",
-            steps=1 if len(inside) else 0,
+            status="fixed" if len(points) else "empty",
+            steps=1 if len(points) else 0,
             stable=np.nan,
             pair_hit=False,
             pair_distance=np.nan,
@@ -478,7 +463,7 @@ def _cluster_unit_with_distance_search(
         trial += 1
         began = time.perf_counter()
         try:
-            current = _cluster_unit(inside, snaps, graph, config.replace(max_distance=radius, distance_mode="fixed"))
+            current = _cluster_unit(points, snaps, graph, config.replace(max_distance=radius, distance_mode="fixed"))
         except NeighborPairLimitError as exc:
             pair_hit = True
             pair_distance = float(exc.max_distance)
@@ -524,18 +509,18 @@ def _cluster_unit_with_distance_search(
 
 
 def _run_unit(
-    inside: gpd.GeoDataFrame,
+    points: gpd.GeoDataFrame,
     snaps: Snaps,
     graph: NetworkGraph,
     config: HDBSCANConfig,
     point_id_col: str,
 ) -> ClusterOutputs:
     start = time.perf_counter()
-    order = canonical_order(inside[point_id_col].tolist()) if len(inside) else np.empty(0, dtype=np.int64)
-    inside = inside.iloc[order].reset_index(drop=True)
+    order = canonical_order(points[point_id_col].tolist()) if len(points) else np.empty(0, dtype=np.int64)
+    points = points.iloc[order].reset_index(drop=True)
     snaps = snaps.subset(order)
-    _check_snap_distance(inside[point_id_col].tolist(), snaps.snap_distance, config.max_snap_distance)
-    points, table, hierarchy, stats, trace = _cluster_unit_with_distance_search(inside, snaps, graph, config)
+    _check_snap_distance(points[point_id_col].tolist(), snaps.snap_distance, config.max_snap_distance)
+    points, table, hierarchy, stats, trace = _cluster_unit_with_distance_search(points, snaps, graph, config)
     stats.update(
         min_cluster_size=config.min_cluster_size,
         min_samples=config.effective_min_samples,
@@ -571,26 +556,24 @@ def _analysis_metadata(crs, graph: NetworkGraph | None) -> dict[str, Any]:
 
 def cluster_geodataframes(
     points: gpd.GeoDataFrame,
-    boundary: gpd.GeoDataFrame | None,
     network: gpd.GeoDataFrame,
     config: HDBSCANConfig,
     *,
     point_id_col: str = "point_id",
     vertex_digits: int | None = DEFAULT_VERTEX_DIGITS,
 ) -> ClusterOutputs:
-    """Cluster all boundary-covered points as one HDBSCAN* unit.
+    """Cluster all supplied points as one HDBSCAN* unit.
 
-    Output points are in the network CRS, restricted to points covered by
-    the boundary (all points when ``boundary`` is None), and sorted by point
-    ID as text. The boundary only selects points; it never clips the network.
+    Output points are reprojected to the network CRS and sorted by point ID
+    as text. Study-area or other eligibility filtering belongs upstream.
     """
     if not isinstance(config, HDBSCANConfig):
         raise TypeError("config must be an HDBSCANConfig")
-    network, crs, boundary_geom = _prepare(network, boundary)
+    network = prepare_network(network)
+    crs = network.crs
     work = prepare_points(points, crs, point_id_col)
-    inside = work.loc[_inside(work, boundary_geom)].reset_index(drop=True)
-    graph, snaps = _snap_inside(network, inside, vertex_digits)
-    outputs = _run_unit(inside, snaps, graph, config, point_id_col)
+    graph, snaps = _snap_points_to_network(network, work, vertex_digits)
+    outputs = _run_unit(work, snaps, graph, config, point_id_col)
     outputs.summary = {"group": None, "n_points_input": int(len(points)), **outputs.summary}
     outputs.analysis = _analysis_metadata(crs, graph)
     return outputs
@@ -632,13 +615,11 @@ def _manifest(kind: str, inputs: dict[str, Any], config: HDBSCANConfig, extra: d
 def cluster_files(
     *,
     points_path: str | Path,
-    boundary_path: str | Path | None = None,
     network_path: str | Path,
     output_dir: str | Path,
     config: HDBSCANConfig,
     point_id_col: str = "point_id",
     points_layer: str | None = None,
-    boundary_layer: str | None = None,
     network_layer: str | None = None,
     vertex_digits: int | None = DEFAULT_VERTEX_DIGITS,
     force: bool = False,
@@ -664,7 +645,6 @@ def cluster_files(
     _require_pyarrow()
     outputs = cluster_geodataframes(
         read_vector(points_path, name="points", layer=points_layer),
-        None if boundary_path is None else read_vector(boundary_path, name="boundary", layer=boundary_layer),
         read_vector(network_path, name="network", layer=network_layer),
         config,
         point_id_col=point_id_col,
@@ -678,8 +658,6 @@ def cluster_files(
     inputs = {
         "points": str(points_path),
         "points_layer": points_layer,
-        "boundary": None if boundary_path is None else str(boundary_path),
-        "boundary_layer": boundary_layer,
         "network": str(network_path),
         "network_layer": network_layer,
         "point_id_col": point_id_col,
@@ -713,7 +691,6 @@ def _refuse_existing(paths, force: bool) -> None:
 def cluster_files_by_column(
     *,
     points_path: str | Path,
-    boundary_path: str | Path | None = None,
     network_path: str | Path,
     output_dir: str | Path,
     group_col: str,
@@ -723,15 +700,14 @@ def cluster_files_by_column(
     missing_group_policy: str = "exclude",
     point_id_col: str = "point_id",
     points_layer: str | None = None,
-    boundary_layer: str | None = None,
     network_layer: str | None = None,
     vertex_digits: int | None = DEFAULT_VERTEX_DIGITS,
     force: bool = False,
 ) -> pd.DataFrame:
     """Cluster each value of ``group_col`` separately and write one set of files per group.
 
-    The network is read and built once, the boundary is prepared once, and
-    all points are snapped once. Each group is then clustered on its own,
+    The network is read and built once and all retained points are snapped
+    once. Each group is then clustered on its own,
     with the run-wide ``config`` changed by ``group_params[group_key]`` where
     given (see ``net_hdbscan.config.read_group_params``). Missing/blank group
     values are excluded by default; choose ``missing_group_policy='include'``
@@ -750,7 +726,6 @@ def cluster_files_by_column(
     # large inputs if the optional file dependency is unavailable.
     _require_pyarrow()
     points = read_vector(points_path, name="points", layer=points_layer)
-    boundary = None if boundary_path is None else read_vector(boundary_path, name="boundary", layer=boundary_layer)
     network = read_vector(network_path, name="network", layer=network_layer)
     if group_col not in points.columns:
         raise ValueError(f"group column {group_col!r} not found")
@@ -823,11 +798,12 @@ def cluster_files_by_column(
     run_files = [output_dir / "summary.csv", output_dir / "distance_trace.csv", output_dir / "manifest.json"]
     _refuse_existing([p for paths in planned.values() for p in paths.values()] + run_files, force)
 
-    network, crs, boundary_geom = _prepare(network, boundary)
+    network = prepare_network(network)
+    crs = network.crs
 
     # Missing/blank groups that are excluded can never contribute to an output
-    # group. Remove them before reprojection, boundary filtering and especially
-    # snapping, which can be the dominant preprocessing cost on large inputs.
+    # group. Remove them before reprojection and especially snapping, which can
+    # be the dominant preprocessing cost on large inputs.
     if missing_group_policy == "exclude":
         eligible = ~missing_mask.to_numpy()
         points_for_run = points.loc[eligible].copy().reset_index(drop=True)
@@ -837,10 +813,8 @@ def cluster_files_by_column(
         keys_for_run = keys.to_numpy()
 
     work = prepare_points(points_for_run, crs, point_id_col)
-    inside_mask = _inside(work, boundary_geom)
-    inside_all = work.loc[inside_mask].reset_index(drop=True)
-    inside_keys = keys_for_run[inside_mask]
-    graph, snaps_all = _snap_inside(network, inside_all, vertex_digits)
+    work_keys = keys_for_run
+    graph, snaps_all = _snap_points_to_network(network, work, vertex_digits)
     analysis = _analysis_metadata(crs, graph)
 
     declared = set(group_universe_keys) if group_universe is not None else None
@@ -849,8 +823,8 @@ def cluster_files_by_column(
     rows = []
     traces = []
     for key in values:
-        rows_in = np.flatnonzero(inside_keys == key)
-        subset = inside_all.iloc[rows_in].reset_index(drop=True)
+        rows_in = np.flatnonzero(work_keys == key)
+        subset = work.iloc[rows_in].reset_index(drop=True)
         group_snaps = snaps_all.subset(rows_in)
         try:
             outputs = _run_unit(subset, group_snaps, graph, configs[key], point_id_col)
@@ -859,7 +833,7 @@ def cluster_files_by_column(
             context = (
                 f"group {group_display(key)!r} failed "
                 f"(n_points_input={int((keys == key).sum()):,}, "
-                f"n_points_inside={len(subset):,}, n_positions={n_positions:,})"
+                f"n_points={len(subset):,}, n_positions={n_positions:,})"
             )
             if hasattr(exc, "add_note"):  # Python 3.11+: keep the original error type
                 exc.add_note(context)
@@ -890,8 +864,6 @@ def cluster_files_by_column(
     inputs = {
         "points": str(points_path),
         "points_layer": points_layer,
-        "boundary": None if boundary_path is None else str(boundary_path),
-        "boundary_layer": boundary_layer,
         "network": str(network_path),
         "network_layer": network_layer,
         "group_col": group_col,

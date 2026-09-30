@@ -99,23 +99,6 @@ def prepare_network(network: gpd.GeoDataFrame) -> gpd.GeoDataFrame:
     return network
 
 
-def prepare_boundary(boundary: gpd.GeoDataFrame, crs) -> shapely.Geometry:
-    """Union of the boundary polygons in ``crs``."""
-    if boundary.empty:
-        raise ValueError("boundary is empty")
-    if boundary.crs is None:
-        raise ValueError("boundary has no CRS")
-    _check_geometries(boundary, "boundary", ["Polygon", "MultiPolygon"])
-    if not boundary.geometry.is_valid.all():
-        raise ValueError("boundary contains invalid geometry; repair it before analysis")
-    work = boundary.to_crs(crs) if boundary.crs != crs else boundary
-    if not work.geometry.is_valid.all():
-        raise ValueError("boundary became invalid after reprojection to the network CRS")
-    geom = shapely.union_all(work.geometry.to_numpy())
-    if geom.is_empty:
-        raise ValueError("boundary union is empty")
-    return geom
-
 
 def prepare_points(points: gpd.GeoDataFrame, crs, point_id_col: str) -> gpd.GeoDataFrame:
     """Check the point layer and reproject it to ``crs``.
@@ -141,11 +124,6 @@ def prepare_points(points: gpd.GeoDataFrame, crs, point_id_col: str) -> gpd.GeoD
         raise ValueError("points contains NaN or infinite coordinates")
     return work
 
-
-def covered_by(points: gpd.GeoDataFrame, area: shapely.Geometry) -> np.ndarray:
-    """Boolean mask of points covered by ``area`` (points on its edge count)."""
-    shapely.prepare(area)
-    return shapely.covers(area, points.geometry.to_numpy())
 
 
 def canonical_order(point_ids) -> np.ndarray:

@@ -1,6 +1,7 @@
 """Release-level tests for net-hdbscan."""
 
 import importlib
+import inspect
 import os
 import subprocess
 import sys
@@ -89,8 +90,8 @@ def test_core_distances_mix_long_and_short_rows():
 # --- per-cluster table -----------------------------------------------------
 
 
-def test_cluster_table_describes_every_cluster(points, boundary, roads):
-    out = cluster_geodataframes(points, boundary, roads, CONFIG.replace(noise_policy="singleton"))
+def test_cluster_table_describes_every_cluster(points, roads):
+    out = cluster_geodataframes(points, roads, CONFIG.replace(noise_policy="singleton"))
     table, labelled = out.clusters, out.points
     assert list(table.columns) == ["cluster_id", "n_points", "n_positions", "stability", "birth_distance", "singleton"]
     counts = labelled["cluster_id"].value_counts()
@@ -102,8 +103,8 @@ def test_cluster_table_describes_every_cluster(points, boundary, roads):
     assert set(table.loc[table["singleton"], "cluster_id"]) == noise_ids
 
 
-def test_cluster_table_files(files, tmp_path, points, boundary, roads):
-    cluster_files(points_path=files["points"], boundary_path=files["boundary"], network_path=files["roads"], output_dir=tmp_path / "one", config=CONFIG)
+def test_cluster_table_files(files, tmp_path, points, roads):
+    cluster_files(points_path=files["points"], network_path=files["roads"], output_dir=tmp_path / "one", config=CONFIG)
     table = pd.read_parquet(tmp_path / "one" / "cluster_table.parquet")
     assert len(table) == 2 and table["n_points"].sum() == (~gpd.read_parquet(tmp_path / "one" / "clustered_points.parquet")["is_noise"]).sum()
     data = points.copy()
@@ -111,7 +112,7 @@ def test_cluster_table_files(files, tmp_path, points, boundary, roads):
     data.loc[:2, "geometry"] = [Point(5000, 5000)] * 3
     data.to_parquet(tmp_path / "grouped.parquet")
     cluster_files_by_column(
-        points_path=tmp_path / "grouped.parquet", boundary_path=files["boundary"], network_path=files["roads"],
+        points_path=tmp_path / "grouped.parquet", network_path=files["roads"],
         output_dir=tmp_path / "many", group_col="sector", config=CONFIG,
     )
     names = sorted(p.name for p in (tmp_path / "many" / "clusters").iterdir())
@@ -120,22 +121,34 @@ def test_cluster_table_files(files, tmp_path, points, boundary, roads):
     assert len(empty) == 0 and list(empty.columns) == ["cluster_id", "n_points", "n_positions", "stability", "birth_distance", "singleton"]
 
 
-# --- optional boundary -----------------------------------------------------
+# --- boundaryless public contract -----------------------------------------
 
 
-def test_boundary_is_optional(points, boundary, roads, tmp_path):
-    far = gpd.GeoDataFrame({"point_id": ["far"], "sector": ["a"]}, geometry=[Point(2040, 2040)], crs=CRS)
+def test_public_apis_have_no_boundary_parameters():
+    assert "boundary" not in inspect.signature(cluster_geodataframes).parameters
+    for func in [cluster_files, cluster_files_by_column]:
+        parameters = inspect.signature(func).parameters
+        assert "boundary_path" not in parameters
+        assert "boundary_layer" not in parameters
+
+
+def test_boundary_io_helpers_are_removed():
+    from net_hdbscan import io
+
+    assert not hasattr(io, "prepare_boundary")
+    assert not hasattr(io, "covered_by")
+
+
+def test_all_supplied_points_are_used(points, roads, tmp_path):
+    far = gpd.GeoDataFrame({"point_id": ["far"], "sector": ["a"]}, geometry=[Point(5000, 5000)], crs=CRS)
     data = pd.concat([points, far], ignore_index=True)
-    with_boundary = cluster_geodataframes(data, boundary, roads, CONFIG)
-    without = cluster_geodataframes(data, None, roads, CONFIG)
-    assert without.summary["n_points"] == len(data) == with_boundary.summary["n_points"]
-    small = gpd.GeoDataFrame(geometry=[boundary.geometry.iloc[0].buffer(-1000)], crs=CRS)
-    assert cluster_geodataframes(data, small, roads, CONFIG).summary["n_points"] < len(data)
+    out = cluster_geodataframes(data, roads, CONFIG)
+    assert out.summary["n_points"] == len(data)
     pytest.importorskip("pyarrow")
     data.to_parquet(tmp_path / "p.parquet")
     roads.to_parquet(tmp_path / "r.parquet")
-    out = cluster_files(points_path=tmp_path / "p.parquet", network_path=tmp_path / "r.parquet", output_dir=tmp_path / "out", config=CONFIG)
-    assert out.summary["n_points"] == len(data)
+    file_out = cluster_files(points_path=tmp_path / "p.parquet", network_path=tmp_path / "r.parquet", output_dir=tmp_path / "out", config=CONFIG)
+    assert file_out.summary["n_points"] == len(data)
 
 
 # --- optional extras -------------------------------------------------------
@@ -194,7 +207,6 @@ def test_manifest_records_layers_crs_unit_and_graph_counts(files, tmp_path):
     out_dir = tmp_path / "manifest"
     cluster_files(
         points_path=files["points"],
-        boundary_path=files["boundary"],
         network_path=files["roads"],
         output_dir=out_dir,
         config=CONFIG,
@@ -203,8 +215,9 @@ def test_manifest_records_layers_crs_unit_and_graph_counts(files, tmp_path):
 
     manifest = json.loads((out_dir / "manifest.json").read_text())
     assert manifest["inputs"]["points_layer"] is None
-    assert manifest["inputs"]["boundary_layer"] is None
     assert manifest["inputs"]["network_layer"] is None
+    assert "boundary" not in manifest["inputs"]
+    assert "boundary_layer" not in manifest["inputs"]
     analysis = manifest["analysis"]
     assert analysis["crs"]
     assert analysis["network_vertices"] > 0

@@ -53,7 +53,6 @@ def _print_summary(summary: pd.DataFrame) -> None:
 @app.command()
 def cluster(
     points: Path = typer.Option(..., "--points", help="Point layer (GeoParquet, GeoPackage, ...)."),
-    boundary: Path | None = typer.Option(None, "--boundary", help="Optional polygon layer; only covered points are used."),
     network: Path = typer.Option(..., "--network", help="Line network in a projected CRS."),
     output_dir: Path = typer.Option(..., "--output-dir", help="Folder for clustered points, hierarchy and diagnostics."),
     max_distance: float = typer.Option(..., "--max-distance", help="Fixed search radius, or hard ceiling in adaptive mode (CRS units)."),
@@ -81,7 +80,6 @@ def cluster(
     missing_group_policy: str = typer.Option("exclude", "--missing-group-policy", help="'exclude', 'include', or 'error' for null/blank group values."),
     vertex_digits: int = typer.Option(DEFAULT_VERTEX_DIGITS, "--vertex-digits", help="Significant digits for joining network vertices."),
     points_layer: str | None = typer.Option(None, "--points-layer"),
-    boundary_layer: str | None = typer.Option(None, "--boundary-layer"),
     network_layer: str | None = typer.Option(None, "--network-layer"),
     force: bool = typer.Option(False, "--force", help="Replace existing outputs."),
 ) -> None:
@@ -108,13 +106,11 @@ def cluster(
     )
     common = dict(
         points_path=points,
-        boundary_path=boundary,
         network_path=network,
         output_dir=output_dir,
         config=config,
         point_id_col=point_id_col,
         points_layer=points_layer,
-        boundary_layer=boundary_layer,
         network_layer=network_layer,
         vertex_digits=vertex_digits,
         force=force,

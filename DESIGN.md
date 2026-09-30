@@ -3,18 +3,17 @@
 ## Core invariant
 
 ```text
-points
-  → optional boundary eligibility
-  → snap to supplied projected line network
+points + supplied projected line network
+  → snap points to network arcs
   → compress identical snapped positions
   → sparse shortest-path distances up to a bounded horizon
   → HDBSCAN*
   → clustered points + cluster table + hierarchy + diagnostics
 ```
 
-The boundary filters observations only. It never clips the network, and shortest paths may leave the boundary. With no boundary, every input observation is eligible.
+Study-area or other eligibility filtering is deliberately outside the package; `net-hdbscan` clusters every supplied point.
 
-## Package boundary
+## Package scope
 
 `net-hdbscan` owns network-space HDBSCAN clustering. It does not own territory generation, Voronoi construction, network downloading, domain classification or topology repair. The package is self-contained at the application level and exposes its own network, clustering, pipeline and diagnostic interfaces.
 
@@ -40,7 +39,7 @@ Equal mutual-reachability distances are handled simultaneously as multifurcation
 
 Grouped runs share network preparation and point snapping. Missing and blank groups are internal sentinels rather than ordinary strings. The user-facing tokens `__null__` and `__blank__` denote actual missing values; literal categories with those names remain valid and are displayed as `literal:__null__` and `literal:__blank__` where disambiguation is required.
 
-When missing groups are excluded, they are removed before reprojection, boundary filtering and snapping. Planned output names are checked with case-insensitive semantics so a run is safe on Windows even when prepared on another platform.
+When missing groups are excluded, they are removed before reprojection and snapping. Planned output names are checked with case-insensitive semantics so a run is safe on Windows even when prepared on another platform.
 
 ## Adaptive horizon
 

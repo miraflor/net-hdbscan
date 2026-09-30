@@ -253,6 +253,71 @@ The release was validated with fixed and adaptive regression runs on a productio
 
 `net-hdbscan` does not build a network from an external service, infer or repair uncertain topology, construct Voronoi territories, choose substantive group categories, or claim that adaptive local stability proves global invariance to larger search horizons.
 
+## Provenance
+
+`net-hdbscan` implements published methods. It does not propose a new clustering algorithm. The clustering model is HDBSCAN* (Campello et al., 2013a; Campello et al., 2015), applied to the shortest-path length between positions on a network, as in earlier network-constrained clustering (Yiu and Mamoulis, 2004). The HDBSCAN* definitions use only pairwise distances, through the core distance and the mutual reachability distance. Replacing Euclidean distance with network distance therefore changes the input, not the method. The conventions follow scikit-learn's `HDBSCAN` (Pedregosa et al., 2011) and the `hdbscan` library (McInnes et al., 2017), so that results can be compared.
+
+With the default settings (`distance_mode="fixed"`, `core_distance_floor=0`, `cluster_selection_method="eom"`), the package computes standard HDBSCAN* on the network distance truncated at `max_distance`. Two optional settings are not taken from a published source; they are described under [What is specific to this package](#what-is-specific-to-this-package).
+
+### Why the package has its own HDBSCAN* implementation
+
+scikit-learn's `HDBSCAN` accepts a sparse precomputed distance matrix only when every row stores at least `min_samples` neighbours (or a fill value for missing distances is supplied) and the graph is connected. A network-distance graph truncated at `max_distance` meets neither condition in general. The package therefore computes the same algorithm on such a graph. This extends the input that the algorithm accepts; it does not change the model. If every pair that was not measured is given infinite distance, the standard HDBSCAN* definitions already give the two rules stated under [Mutual reachability and the hierarchy](#mutual-reachability-and-the-hierarchy): a position that cannot reach `min_samples` weight within the horizon has an infinite core distance, and separate components join only at infinite distance, which is $`\lambda = 0`$.
+
+The DBSCAN* clustering at every distance up to `max_distance` is the same as without truncation. A cluster that is already separate at `max_distance` is born at $`\lambda = 0`$, because the program has no distance information above that value; this is the standard definition applied to the truncated distance.
+
+### Source of each step
+
+| Step in `net-hdbscan` | Published source or earlier implementation |
+|---|---|
+| Observations lie on network edges, and the distance is the shortest-path length along the network | Yiu and Mamoulis (2004). Snapping each point to its nearest road segment and splitting the segment at that location: Wang et al. (2019). |
+| Bounded shortest-path search up to `max_distance`, with exact results below that distance | OPTICS uses a generating distance as an upper limit on the neighbourhood search to reduce computation, and clusterings for thresholds up to that limit can be extracted from its result (Ankerst et al., 1999). Shortest paths: Dijkstra (1959), computed with SciPy (Virtanen et al., 2020). |
+| Core distance, mutual reachability distance, hierarchy, condensed tree, stability and Excess-of-Mass selection | HDBSCAN* (Campello et al., 2013a; Campello et al., 2015). Stability-based selection of clusters from a cluster tree: Campello et al. (2013b). A minimum spanning tree gives the single-linkage hierarchy (Gower and Ross, 1969). |
+| Co-located observations compressed into one weighted position | Equivalent to HDBSCAN* on the uncompressed observations. Observations at one position are at distance 0 from each other, so each counts in the others' core-distance neighbourhood, and all of them leave a cluster at the same $`\lambda`$. |
+| Equal mutual-reachability distances processed together, which can split a cluster into more than two parts at one level | The HDBSCAN* hierarchy is the set of DBSCAN* clusterings at every distance level (Campello et al., 2015). Below a distance shared by several edges, all of those edges are absent at once. A binary merge tree must put such edges in an arbitrary order; this is why results can differ from scikit-learn in cases with many ties. |
+| `leaf` selection, `max_cluster_size`, `allow_single_cluster` and membership strength | Conventions of scikit-learn's `HDBSCAN` and the `hdbscan` library (McInnes et al., 2017). |
+| `cluster_selection_epsilon` | HDBSCAN($`\hat{\varepsilon}`$) of Malzer and Baum (2020), with scikit-learn's meaning. |
+| Partial selection of the smallest row entries when computing core distances | Selection algorithm (Hoare, 1961). The result is identical to sorting whole rows. |
+
+### What is specific to this package
+
+Two optional settings are the package's own work. Both are off by default.
+
+**`core_distance_floor`.** A positive floor $`f`$ raises every core distance below $`f`$ to $`f`$. It exists because co-located observations whose total weight reaches `min_samples` have core distance 0, so $`\lambda`$ is infinite for them and any cluster that contains them receives infinite stability. At every distance level $`\varepsilon \ge f`$ the floor changes nothing, because $`\max(\mathrm{core}(p), f) \le \varepsilon`$ exactly when $`\mathrm{core}(p) \le \varepsilon`$. Below $`f`$, no position is core. The result is therefore the standard HDBSCAN* hierarchy cut at distance $`f`$, with stability accumulated only up to $`\lambda = 1/f`$. A split that the standard hierarchy shows only at distances below $`f`$ does not appear. Because the stability values change, the selected clusters can change, so a positive floor modifies the published model. No published source for this rule was found in the provenance review of September 2026. The closest published option, `cluster_selection_epsilon` (Malzer and Baum, 2020), changes which clusters are selected and does not modify the hierarchy.
+
+**Adaptive distance mode** (`distance_mode="adaptive"`). The search radius grows geometrically up to `max_distance`, and the search stops when two consecutive radii give the same flat labels and membership values and the share of truncated core distances is within the tolerance. Its parts have precedents: a bounded neighbourhood search, as in OPTICS (Ankerst et al., 1999), and a search bound that grows geometrically, as in unbounded search (Bentley and Yao, 1976). The stopping rule itself is the package's own. It only selects a parameter: for the selected radius, the output is HDBSCAN* on the network distance truncated at that radius. As stated under [`max_distance`](#max_distance), the `converged` status means local stability, not a proof.
+
+The other package-specific parts are engineering: canonical vertex and arc identity, deterministic snapping, batching and memory limits in the neighbour search, validation of sparse graphs, grouped execution, and diagnostics. None of them defines a new clustering model.
+
+## References
+
+Ankerst, M., Breunig, M. M., Kriegel, H.-P., & Sander, J. (1999). OPTICS: Ordering points to identify the clustering structure. In *Proceedings of the 1999 ACM SIGMOD International Conference on Management of Data*, 49–60. https://doi.org/10.1145/304181.304187
+
+Bentley, J. L., & Yao, A. C.-C. (1976). An almost optimal algorithm for unbounded searching. *Information Processing Letters*, 5(3), 82–87.
+
+Campello, R. J. G. B., Moulavi, D., & Sander, J. (2013a). Density-based clustering based on hierarchical density estimates. In *Advances in Knowledge Discovery and Data Mining (PAKDD 2013)*, Lecture Notes in Computer Science 7819, 160–172. Springer. https://doi.org/10.1007/978-3-642-37456-2_14
+
+Campello, R. J. G. B., Moulavi, D., Zimek, A., & Sander, J. (2013b). A framework for semi-supervised and unsupervised optimal extraction of clusters from hierarchies. *Data Mining and Knowledge Discovery*, 27(3), 344–371. https://doi.org/10.1007/s10618-013-0311-4
+
+Campello, R. J. G. B., Moulavi, D., Zimek, A., & Sander, J. (2015). Hierarchical density estimates for data clustering, visualization, and outlier detection. *ACM Transactions on Knowledge Discovery from Data*, 10(1), 5:1–5:51. https://doi.org/10.1145/2733381
+
+Dijkstra, E. W. (1959). A note on two problems in connexion with graphs. *Numerische Mathematik*, 1, 269–271.
+
+Gower, J. C., & Ross, G. J. S. (1969). Minimum spanning trees and single linkage cluster analysis. *Journal of the Royal Statistical Society, Series C (Applied Statistics)*, 18(1), 54–64.
+
+Hoare, C. A. R. (1961). Algorithm 65: Find. *Communications of the ACM*, 4(7), 321–322.
+
+Malzer, C., & Baum, M. (2020). A hybrid approach to hierarchical density-based cluster selection. In *2020 IEEE International Conference on Multisensor Fusion and Integration for Intelligent Systems (MFI)*, 223–228. https://doi.org/10.48550/arXiv.1911.02282
+
+McInnes, L., Healy, J., & Astels, S. (2017). hdbscan: Hierarchical density based clustering. *Journal of Open Source Software*, 2(11), 205. https://doi.org/10.21105/joss.00205
+
+Pedregosa, F., Varoquaux, G., Gramfort, A., et al. (2011). Scikit-learn: Machine learning in Python. *Journal of Machine Learning Research*, 12, 2825–2830.
+
+Virtanen, P., Gommers, R., Oliphant, T. E., et al. (2020). SciPy 1.0: Fundamental algorithms for scientific computing in Python. *Nature Methods*, 17, 261–272. https://doi.org/10.1038/s41592-019-0686-2
+
+Wang, T., Ren, C., Luo, Y., & Tian, J. (2019). NS-DBSCAN: A density-based clustering algorithm in network space. *ISPRS International Journal of Geo-Information*, 8(5), 218. https://doi.org/10.3390/ijgi8050218
+
+Yiu, M. L., & Mamoulis, N. (2004). Clustering objects on a spatial network. In *Proceedings of the 2004 ACM SIGMOD International Conference on Management of Data*, 443–454. https://doi.org/10.1145/1007568.1007619
+
 ## License
 
 MIT.

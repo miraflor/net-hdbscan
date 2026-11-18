@@ -321,3 +321,13 @@ Yiu, M. L., & Mamoulis, N. (2004). Clustering objects on a spatial network. In *
 ## License
 
 MIT.
+
+## Author and Citation
+
+**James Matthew Miraflor**  
+[Scientific Computing Laboratory](https://scl.dcs.upd.edu.ph/)  
+[Department of Computer Science](https://dcs.upd.edu.ph/)  
+College of Engineering  
+University of the Philippines Diliman
+
+**net-hdbscan** is authored and maintained by James Matthew Miraflor, with AI assistance in software development, debugging, testing, and documentation. Responsibility for the project's methodological decisions, scientific validity, and published outputs rests with the author.

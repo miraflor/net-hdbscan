@@ -226,3 +226,13 @@ flat output directory. Replacement uses a rollback journal and two renames;
 **it is not a truly atomic multi-file transaction on every operating system**.
 A crash can temporarily leave the output directory absent until journal recovery
 on the next run. `--force` refuses to delete unrecognized output files.
+
+## Author and Citation
+
+**James Matthew Miraflor**\
+[Scientific Computing Laboratory](https://scl.dcs.upd.edu.ph/)\
+[Department of Computer Science](https://dcs.upd.edu.ph/)\
+College of Engineering\
+University of the Philippines Diliman
+
+**net-hdbscan** is authored and maintained by James Matthew Miraflor, with AI assistance in software development, debugging, testing, and documentation. Responsibility for the project's methodological decisions, scientific validity, and published outputs rests with the author.

@@ -18,6 +18,34 @@ class ExtractionComparison:
     eom_parent_to_leaf_descendants: Mapping[int, tuple[int, ...]]
 
 
+def _map_selected_descendants(parent: np.ndarray, eom_selected: np.ndarray,
+                              leaf_selected: np.ndarray) -> dict[int, tuple[int, ...]]:
+    """Map selected leaf nodes to their nearest selected EOM ancestor in O(K + L).
+
+    Hierarchy node IDs are topological: a non-root parent's ID precedes its
+    children's IDs, as produced by the condensed-hierarchy builder.
+    """
+    parent = np.asarray(parent, dtype=np.int64)
+    eom_selected = np.asarray(eom_selected, dtype=bool)
+    leaf_selected = np.asarray(leaf_selected, dtype=bool)
+    k = len(parent)
+    if eom_selected.shape != (k,) or leaf_selected.shape != (k,):
+        raise ValueError('selection flags must match hierarchy length')
+    owner = np.full(k, -1, dtype=np.int64)
+    mapping: dict[int, list[int]] = {int(c): [] for c in np.flatnonzero(eom_selected)}
+    for c in range(k):
+        if eom_selected[c]:
+            owner[c] = c
+        elif c:
+            p = int(parent[c])
+            if p < 0 or p >= c:
+                raise ValueError('hierarchy parent must precede child')
+            owner[c] = owner[p]
+        if leaf_selected[c] and owner[c] >= 0:
+            mapping[int(owner[c])].append(c)
+    return {root: tuple(leaves) for root, leaves in mapping.items()}
+
+
 def compare_extractions(
     fitted: FittedHierarchy, *, methods: tuple[str, ...] = ('eom', 'leaf'),
     cluster_selection_epsilon: float = 0.0,
@@ -58,15 +86,8 @@ def compare_extractions(
         results[method] = result
     descendant_map = {}
     if 'eom' in results and 'leaf' in results:
-        eom = results['eom']
-        leaf = results['leaf']
-        for root in np.flatnonzero(eom.cluster_selected):
-            descendants = []
-            for node in np.flatnonzero(leaf.cluster_selected):
-                ancestor = int(node)
-                while ancestor > 0 and ancestor != root:
-                    ancestor = int(fitted.parent[ancestor])
-                if ancestor == root:
-                    descendants.append(int(node))
-            descendant_map[int(root)] = tuple(descendants)
+        descendant_map = _map_selected_descendants(
+            fitted.parent, results['eom'].cluster_selected,
+            results['leaf'].cluster_selected,
+        )
     return ExtractionComparison(results, tuple(summary), descendant_map)

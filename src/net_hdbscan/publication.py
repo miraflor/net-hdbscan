@@ -62,6 +62,11 @@ def _write_json(path: Path, item: dict) -> None:
 
 
 def _verify_generation(folder: Path, *, expected_inputs=None) -> dict:
+    """Verify each artifact once, keeping only one group's tables in memory.
+
+    Preserves complete hash, schema, cardinality and partition checks without
+    retaining every group's Parquet frames simultaneously in large runs.
+    """
     import geopandas as gpd
     manifest = folder / 'manifest.json'
     if not manifest.is_file():
@@ -69,17 +74,9 @@ def _verify_generation(folder: Path, *, expected_inputs=None) -> dict:
     doc = json.loads(manifest.read_text(encoding='utf-8'))
     if doc.get('run') not in ('single', 'grouped'):
         raise OutputPublicationError('unknown manifest run type')
-    paths = {'summary.csv', 'distance_trace.csv'}
-    if doc['run'] == 'single':
-        paths |= {'clustered_points.parquet', 'cluster_table.parquet', 'cluster_hierarchy.parquet'}
-    else:
-        for group, info in doc.get('groups', {}).items():
-            files = info['files']
-            if set(files) != {'points','clusters','hierarchy'}:
-                raise OutputPublicationError(f'incomplete group file references: {group}')
-            paths.update(files.values())
     output_info = {}
-    for rel in sorted(paths):
+
+    def read_checked(rel: str):
         relative = Path(rel)
         if relative.is_absolute() or '..' in relative.parts:
             raise OutputPublicationError(f'unsafe output reference: {rel}')
@@ -87,7 +84,8 @@ def _verify_generation(folder: Path, *, expected_inputs=None) -> dict:
         if not path.is_file():
             raise OutputPublicationError(f'missing artifact: {rel}')
         if path.suffix == '.csv':
-            frame = pd.read_csv(path)
+            frame = (pd.read_csv(path, keep_default_na=False, dtype={'group': str})
+                     if rel == 'summary.csv' else pd.read_csv(path))
         elif 'points' in relative.parts or relative.name == 'clustered_points.parquet':
             frame = gpd.read_parquet(path)
         else:
@@ -95,32 +93,38 @@ def _verify_generation(folder: Path, *, expected_inputs=None) -> dict:
         if not isinstance(frame, pd.DataFrame):
             raise OutputPublicationError(f'invalid output: {rel}')
         output_info[rel] = {'sha256': _hash(path), 'rows': len(frame)}
-    if expected_inputs is not None:
-        if doc.get('input_sha256') != expected_inputs:
-            raise OutputPublicationError('input checksum mismatch')
-    if 'output_integrity' in doc and doc['output_integrity'] != output_info:
-        raise OutputPublicationError('output integrity mismatch')
-    # Verify partition/report cardinalities, including valid zero-row group outputs.
-    summary = pd.read_csv(folder / 'summary.csv', keep_default_na=False, dtype={'group': str})
+        return frame
+
+    summary = read_checked('summary.csv')
+    read_checked('distance_trace.csv')
     if doc['run'] == 'single':
-        points = gpd.read_parquet(folder / 'clustered_points.parquet')
+        points = read_checked('clustered_points.parquet')
+        clusters = read_checked('cluster_table.parquet')
+        hierarchy = read_checked('cluster_hierarchy.parquet')
         if len(summary) != 1 or int(summary.iloc[0]['n_points']) != len(points):
             raise OutputPublicationError('single-run cardinality disagreement')
-        clusters = pd.read_parquet(folder / 'cluster_table.parquet')
-        hierarchy = pd.read_parquet(folder / 'cluster_hierarchy.parquet')
         _verify_partition(points, clusters, hierarchy)
     else:
-        if len(summary) != len(doc.get('groups', {})):
+        groups = doc.get('groups', {})
+        if len(summary) != len(groups):
             raise OutputPublicationError('group-count disagreement')
-        for group, info in doc['groups'].items():
-            fs = info['files']
-            points = gpd.read_parquet(folder / fs['points'])
-            clusters = pd.read_parquet(folder / fs['clusters'])
-            hierarchy = pd.read_parquet(folder / fs['hierarchy'])
+        for group, group_info in groups.items():
+            files = group_info['files']
+            if set(files) != {'points', 'clusters', 'hierarchy'}:
+                raise OutputPublicationError(f'incomplete group file references: {group}')
+            # Frames are discarded on the next loop iteration; no across-group
+            # cache is retained regardless of the number of groups.
+            points = read_checked(files['points'])
+            clusters = read_checked(files['clusters'])
+            hierarchy = read_checked(files['hierarchy'])
             _verify_partition(points, clusters, hierarchy)
             row = summary.loc[summary['group'] == group]
             if len(row) != 1 or int(row.iloc[0]['n_points']) != len(points):
                 raise OutputPublicationError(f'group count disagreement: {group}')
+    if expected_inputs is not None and doc.get('input_sha256') != expected_inputs:
+        raise OutputPublicationError('input checksum mismatch')
+    if 'output_integrity' in doc and doc['output_integrity'] != output_info:
+        raise OutputPublicationError('output integrity mismatch')
     return output_info
 
 

@@ -256,3 +256,35 @@ College of Engineering\
 University of the Philippines Diliman
 
 **net-hdbscan** is authored and maintained by James Matthew Miraflor, with AI assistance in software development, debugging, testing, and documentation. Responsibility for the project's methodological decisions, scientific validity, and published outputs rests with the author.
+
+### Performance verification and CI
+
+EOM-to-leaf ancestor mapping now uses a single topological pass through the
+condensed hierarchy, followed by assignments for selected leaves. It avoids
+pairwise walks through every selected EOM/leaf cluster combination. The
+selected clustering itself is unchanged.
+
+Each publication integrity scan decodes each output artifact once and reuses
+that in-memory table for its cross-artifact checks. Integrity SHA-256 hashes
+and partition/cardinality checks remain mandatory. The output generation may
+still be verified multiple times at distinct publication/recovery phases; this
+is deliberate because the on-disk state changes between those phases.
+
+To profile integrity verification on an **existing, realistically sized**
+output generation, run the read-only benchmark:
+
+```bash
+python -B benchmarks/benchmark_publication.py PATH_TO_OUTPUT --repeats 3
+```
+
+Compare identical input generations, hardware, Python, and dependencies for
+before/after measurements. The benchmark reports actual file sizes, duration,
+and Python-traced peak allocations. Native NumPy/Arrow allocations are not
+fully captured by `tracemalloc`; these metrics must not be interpreted as
+complete process peak RSS. No runtime or memory speedup is guaranteed without
+measurements on a representative workload.
+
+The GitHub Actions workflow runs the complete regression and fault-injection
+suite on Windows and Linux with supported Python versions. All applicable
+checks must finish successfully before merging a pull request; missing or
+pending checks do not count as successful.

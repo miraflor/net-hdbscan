@@ -2,7 +2,7 @@
 
 from ._version import __version__
 from .config import GROUP_OVERRIDE_FIELDS, HDBSCANConfig, read_group_params, read_group_universe
-from .sparse_hdbscan import HDBSCANResult, hdbscan
+from .sparse_hdbscan import HDBSCANResult, FittedHierarchy, fit_hierarchy, extract_clusters, hdbscan
 from .network import (
     NeighborPairLimitError,
     NetworkGraph,
@@ -12,6 +12,7 @@ from .network import (
     neighbor_graph,
     snap_points,
 )
+from .comparison import ExtractionComparison, compare_extractions
 from .pipeline import ClusterOutputs, cluster_files, cluster_files_by_column, cluster_geodataframes
 
 __all__ = [
@@ -19,6 +20,11 @@ __all__ = [
     "ClusterOutputs",
     "HDBSCANConfig",
     "HDBSCANResult",
+    "FittedHierarchy",
+    "fit_hierarchy",
+    "extract_clusters",
+    "ExtractionComparison",
+    "compare_extractions",
     "NeighborPairLimitError",
     "NetworkGraph",
     "Snaps",

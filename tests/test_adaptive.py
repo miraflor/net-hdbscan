@@ -51,14 +51,10 @@ def test_a_small_min_distance_still_reaches_the_end_of_the_ladder(points, roads)
     assert out.summary["n_clusters"] > 0
 
 
-def test_pair_limit_keeps_the_last_result_and_does_not_retry_a_radius(points, roads):
-    out = cluster_geodataframes(points, roads, adaptive(max_neighbor_pairs=3000))
-    summary, trace = out.summary, out.trace
-    assert summary["distance_status"] == "pair_cap_limited" and bool(summary["pair_limit_encountered"])
-    assert trace["outcome"].eq("ok").sum() == summary["distance_steps_run"] >= 1
-    assert not trace["radius"].round(6).duplicated().any()
-    assert summary["max_distance"] == trace.loc[trace["outcome"] == "ok", "radius"].iloc[-1]
-    assert (trace.loc[trace["outcome"] == "pair_limit", "radius"] > summary["max_distance"]).all()
+def test_pair_limit_after_successful_adaptive_trial_is_fatal(points, roads):
+    # An earlier smaller-radius success must not become a published result.
+    with pytest.raises(NeighborPairLimitError):
+        cluster_geodataframes(points, roads, adaptive(max_neighbor_pairs=3000))
 
 
 def test_pair_limit_errors_where_no_result_is_allowed(points, roads):

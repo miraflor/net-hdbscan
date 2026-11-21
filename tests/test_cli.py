@@ -75,12 +75,15 @@ def test_cli_reports_excluded_rows_and_undeclared_groups(files, tmp_path, points
     assert "not in --group-universe" in result.stdout and "b" in result.stdout
 
 
-def test_cli_warns_when_the_pair_limit_stops_the_search(files, tmp_path):
+def test_cli_fails_closed_when_the_pair_limit_is_reached(files, tmp_path):
+    from net_hdbscan import NeighborPairLimitError
+
     args = base_args(files, tmp_path / "out")
     args[args.index("--max-distance") + 1] = "3000"
     result = runner.invoke(app, args + ["--distance-mode", "adaptive", "--max-neighbor-pairs", "3000"])
-    assert result.exit_code == 0, result.output
-    assert "WARNING" in result.stdout and "max_neighbor_pairs" in result.stdout
+    assert result.exit_code != 0
+    assert isinstance(result.exception, NeighborPairLimitError)
+    assert not (tmp_path / "out").exists()
 
 
 def test_cluster_help_has_no_boundary_options():
@@ -88,3 +91,19 @@ def test_cluster_help_has_no_boundary_options():
     assert result.exit_code == 0
     assert "--boundary" not in result.stdout
     assert "--boundary-layer" not in result.stdout
+
+
+def test_cli_invalid_group_parameters_use_plain_error_formatting(tmp_path):
+    # This is deliberately an invalid invocation: Typer should use Click's
+    # plain-text error path without importing Rich's error renderer.
+    assert app.rich_markup_mode is None
+    result = runner.invoke(app, [
+        'cluster', '--points', 'does-not-exist.parquet',
+        '--network', 'does-not-exist.gpkg',
+        '--output-dir', str(tmp_path / 'out'),
+        '--max-distance', '100',
+        '--group-params', 'x.csv',
+    ])
+    assert result.exit_code == 2
+    assert '--group-params requires --group-col' in result.output
+    assert 'Traceback (most recent call last)' not in result.output

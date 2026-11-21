@@ -122,9 +122,9 @@ def build_network_graph(lines, *, vertex_digits: int | None = DEFAULT_VERTEX_DIG
     if vertex_digits is not None and (
         isinstance(vertex_digits, bool)
         or not isinstance(vertex_digits, (int, np.integer))
-        or vertex_digits < 1
+        or not 1 <= int(vertex_digits) <= 15
     ):
-        raise ValueError(f"vertex_digits must be a positive integer or None, got {vertex_digits!r}")
+        raise ValueError(f"vertex_digits must be an integer from 1 to 15 or None, got {vertex_digits!r}")
     geoms = np.asarray(lines, dtype=object)
     parts = shapely.get_parts(geoms)
     coords, part_index = shapely.get_coordinates(parts, return_index=True)

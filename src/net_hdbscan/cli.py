@@ -12,7 +12,7 @@ from .config import HDBSCANConfig, read_group_params, read_group_universe
 from .network import DEFAULT_MAX_NEIGHBOR_PAIRS, DEFAULT_VERTEX_DIGITS
 from .pipeline import _summary_frame, cluster_files, cluster_files_by_column
 
-app = typer.Typer(add_completion=False, no_args_is_help=True)
+app = typer.Typer(add_completion=False, no_args_is_help=True, rich_markup_mode=None)
 
 _SHOWN = [
     ("group", "group"),
@@ -144,12 +144,6 @@ def cluster(
             f"(see declared_in_universe in summary.csv): {shown}"
         )
     if "distance_status" in summary.columns:
-        limited = summary["distance_status"].eq("pair_cap_limited").sum()
-        if limited:
-            typer.echo(
-                f"WARNING: {int(limited)} group(s) stopped below the requested distance because "
-                "max_neighbor_pairs was reached; inspect summary.csv."
-            )
         group_tolerance = summary["core_truncation_tolerance"].fillna(core_truncation_tolerance)
         unresolved = (
             summary["distance_status"].eq("ceiling_reached")

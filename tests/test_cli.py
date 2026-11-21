@@ -91,3 +91,19 @@ def test_cluster_help_has_no_boundary_options():
     assert result.exit_code == 0
     assert "--boundary" not in result.stdout
     assert "--boundary-layer" not in result.stdout
+
+
+def test_cli_invalid_group_parameters_use_plain_error_formatting(tmp_path):
+    # This is deliberately an invalid invocation: Typer should use Click's
+    # plain-text error path without importing Rich's error renderer.
+    assert app.rich_markup_mode is None
+    result = runner.invoke(app, [
+        'cluster', '--points', 'does-not-exist.parquet',
+        '--network', 'does-not-exist.gpkg',
+        '--output-dir', str(tmp_path / 'out'),
+        '--max-distance', '100',
+        '--group-params', 'x.csv',
+    ])
+    assert result.exit_code == 2
+    assert '--group-params requires --group-col' in result.output
+    assert 'Traceback (most recent call last)' not in result.output

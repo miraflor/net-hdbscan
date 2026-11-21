@@ -12,7 +12,7 @@ from .config import HDBSCANConfig, read_group_params, read_group_universe
 from .network import DEFAULT_MAX_NEIGHBOR_PAIRS, DEFAULT_VERTEX_DIGITS
 from .pipeline import _summary_frame, cluster_files, cluster_files_by_column
 
-app = typer.Typer(add_completion=False, no_args_is_help=True)
+app = typer.Typer(add_completion=False, no_args_is_help=True, rich_markup_mode=None)
 
 _SHOWN = [
     ("group", "group"),

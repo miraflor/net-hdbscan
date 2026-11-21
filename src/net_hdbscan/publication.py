@@ -18,7 +18,15 @@ import pandas as pd
 
 
 class OutputPublicationError(RuntimeError):
-    """Publication or integrity failure; no partial generation is accepted."""
+    """Publication or integrity failure requiring the caller to stop."""
+
+
+class PostCommitCleanupError(OutputPublicationError):
+    """Verified output is published, but recoverable housekeeping failed.
+
+    This error must stop automation; it does *not* mean publication was rolled
+    back.  The journal is retained for safe, idempotent recovery.
+    """
 
 
 def _hash(path: Path) -> str:
@@ -153,38 +161,152 @@ def _journal_path(destination: Path) -> Path:
     return destination.parent / ('.' + destination.name + '.publication-journal.json')
 
 
+def _journal_record(destination: Path, backup: Path, *, previous: bool,
+                    phase: str) -> dict:
+    return {
+        'version': 2,
+        'destination': str(destination),
+        'backup': str(backup),
+        'previous_generation': bool(previous),
+        'phase': phase,
+    }
+
+
+def _read_journal(destination: Path) -> tuple[Path, bool, str]:
+    """Validate the journal *before* trusting any path it names.
+
+    Version 1 was used before post-commit cleanup was distinguished from
+    rollback. Treat its state as prepared, and never delete a verified
+    destination simply because a possibly partial backup exists.
+    """
+    journal = _journal_path(destination)
+    try:
+        data = json.loads(journal.read_text(encoding='utf-8'))
+    except (OSError, ValueError, TypeError) as exc:
+        raise OutputPublicationError('unreadable publication journal') from exc
+    if not isinstance(data, dict) or data.get('destination') != str(destination.resolve()):
+        raise OutputPublicationError('unsafe or incompatible publication journal')
+    if data.get('version') == 1:
+        previous, phase = True, 'prepared'
+    elif data.get('version') == 2:
+        previous, phase = data.get('previous_generation'), data.get('phase')
+        if not isinstance(previous, bool) or phase not in ('prepared', 'committed'):
+            raise OutputPublicationError('invalid publication journal state')
+    else:
+        raise OutputPublicationError('unsupported publication journal version')
+    try:
+        backup = Path(data['backup'])
+    except (KeyError, TypeError) as exc:
+        raise OutputPublicationError('journal is missing the backup path') from exc
+    if (not backup.is_absolute() or backup.parent != destination.parent
+            or not backup.name.startswith('.' + destination.name + '.backup-')
+            or backup.name == '.' + destination.name + '.backup-'):
+        raise OutputPublicationError('publication journal references unexpected backup')
+    return backup, previous, phase
+
+
+def _remove_committed_backup(destination: Path, backup: Path) -> None:
+    """Irreversible cleanup: must NEVER be followed by predecessor rollback."""
+    if backup.exists():
+        shutil.rmtree(backup)
+    _journal_path(destination).unlink()
+
+
 def _recover_if_needed(destination: Path) -> None:
+    """Recover a crash journal; keep every verified generation intact.
+
+    A committed journal is authoritative: its backup may already be partially
+    deleted and therefore is NEVER a rollback candidate. Prepared journals
+    favor a verified new generation or restore a *verified* predecessor.
+    """
     journal = _journal_path(destination)
     if not journal.exists():
         return
-    data = json.loads(journal.read_text(encoding='utf-8'))
-    if data.get('destination') != str(destination.resolve()) or data.get('version') != 1:
-        raise OutputPublicationError('unsafe or incompatible publication journal')
-    backup = Path(data['backup'])
-    if backup.parent != destination.parent or not backup.name.startswith('.'+destination.name+'.backup-'):
-        raise OutputPublicationError('publication journal references unexpected backup')
-    if backup.exists() and not destination.exists():
+    backup, previous, phase = _read_journal(destination)
+    if phase == 'committed':
+        if not destination.exists():
+            raise OutputPublicationError('committed destination missing; refusing incomplete-backup rollback')
+        _verify_generation(destination)
+        try:
+            _remove_committed_backup(destination, backup)
+        except BaseException as exc:
+            raise PostCommitCleanupError(
+                f'published generation at {destination} is intact; cleanup is pending'
+            ) from exc
+        return
+
+    # An interrupted reversible phase. Never discard a candidate until the
+    # predecessor has passed integrity verification.
+    if previous and backup.exists():
+        if destination.exists():
+            try:
+                _verify_generation(destination)
+            except Exception:
+                _verify_generation(backup)
+                shutil.rmtree(destination)
+                os.replace(backup, destination)
+                journal.unlink()
+                return
+            # Candidate was verified and published before the crash. Record
+            # commitment durably *before* any irreversible backup deletion.
+            _write_json(journal, _journal_record(destination, backup, previous=True,
+                                                  phase='committed'))
+            _recover_if_needed(destination)
+            return
         _verify_generation(backup)
         os.replace(backup, destination)
-    elif backup.exists() and destination.exists():
-        try:
-            _verify_generation(destination)
-        except Exception:
-            # Candidate was interrupted or corrupted: restore verified predecessor.
-            _verify_generation(backup)
-            shutil.rmtree(destination)
-            os.replace(backup, destination)
-        else:
-            shutil.rmtree(backup)
-    elif not destination.exists():
-        raise OutputPublicationError('missing both destination and recovery backup')
-    else:
+        journal.unlink()
+        return
+
+    if destination.exists():
         _verify_generation(destination)
+        # Either old->backup never happened or this is a first publication.
+        if not previous:
+            _write_json(journal, _journal_record(destination, backup, previous=False,
+                                                  phase='committed'))
+            _recover_if_needed(destination)
+        else:
+            journal.unlink()
+        return
+    if previous:
+        raise OutputPublicationError('missing destination and recovery backup')
+    # First publication was interrupted before candidate installation.
     journal.unlink()
 
 
+def _rollback_precommit(destination: Path, backup: Path, *, previous: bool,
+                        moved_old: bool, published: bool) -> None:
+    """Rollback only while the backup is known complete and unmodified."""
+    journal = _journal_path(destination)
+    if journal.exists():
+        recorded_backup, recorded_previous, phase = _read_journal(destination)
+        if recorded_backup != backup or recorded_previous != previous:
+            raise OutputPublicationError('rollback journal differs from expected transaction')
+        if phase == 'committed':
+            # An error may have occurred after the atomic journal replacement
+            # but before its temporary-file cleanup. Never restore the backup.
+            raise PostCommitCleanupError(
+                f'published generation at {destination}; cleanup is pending'
+            )
+    if moved_old:
+        _verify_generation(backup)
+        if destination.exists():
+            shutil.rmtree(destination)
+        os.replace(backup, destination)
+    elif previous:
+        # Backup rename never succeeded. Do not touch an unverified directory.
+        if not destination.exists():
+            raise OutputPublicationError('predecessor missing before its backup was moved')
+        _verify_generation(destination)
+    elif published and destination.exists():
+        # A failed *first* publication has no previous generation to restore.
+        shutil.rmtree(destination)
+    if journal.exists():
+        journal.unlink()
+
+
 def transactional_file_runner(original):
-    """Decorate file pipelines; preserve public signatures and return values."""
+    """Stage, validate, and publish file outputs with fail-fast recovery."""
     import inspect
     signature = inspect.signature(original)
     @wraps(original)
@@ -197,10 +319,10 @@ def transactional_file_runner(original):
             raise OutputPublicationError('unsafe output directory')
         dest.parent.mkdir(parents=True, exist_ok=True)
         _recover_if_needed(dest)
-        if dest.exists() and any(dest.iterdir()):
+        # An empty user directory is not a verified output generation either.
+        if dest.exists():
             if not kw.get('force', False):
                 raise FileExistsError(f'output exists: {dest}; use force=True or --force')
-            # Never delete arbitrary user files through --force.
             _verify_generation(dest)
             prior_doc = json.loads((dest/'manifest.json').read_text(encoding='utf-8'))
             allowed = set(prior_doc.get('output_integrity', {}))
@@ -215,58 +337,60 @@ def transactional_file_runner(original):
             present = {str(x.relative_to(dest)).replace(os.sep, '/') for x in dest.rglob('*') if x.is_file()}
             if present != allowed | {'manifest.json'}:
                 raise OutputPublicationError('refusing --force on directory containing unknown or missing files')
-        # Preserve the file-pipeline contract: missing optional Parquet support
-        # must fail before any attempt to read or hash input files.  Resolve
-        # through the original function's module globals so test monkeypatches
-        # and runtime dependency checks observe the same validator.
+        # The native dependency check must precede input access/hashing.
         original.__globals__['_require_pyarrow']()
         inputs = _input_checksums(kw)
         stage = Path(tempfile.mkdtemp(prefix='.'+dest.name+'.stage-', dir=dest.parent))
         backup = dest.parent / ('.'+dest.name+'.backup-'+uuid.uuid4().hex)
         journal = _journal_path(dest)
-        committed = False
+        previous = dest.exists()
         moved_old = False
+        published = False
         try:
             kw['output_dir'] = stage
             kw['force'] = False
             result = original(**kw)
             if _input_checksums(kw) != inputs:
                 raise OutputPublicationError('input files changed during clustering')
-            _verify_generation(stage)
+            info = _verify_generation(stage)
             docpath = stage / 'manifest.json'
             doc = json.loads(docpath.read_text(encoding='utf-8'))
             doc['manifest_schema_version'] = 2
             doc['package'] = 'net-hdbscan'
             doc['input_sha256'] = inputs
-            doc['output_integrity'] = _verify_generation(stage)
+            doc['output_integrity'] = info
             _write_json(docpath, doc)
             _verify_generation(stage, expected_inputs=inputs)
-            if dest.exists():
-                _write_json(journal, {'version': 1, 'destination': str(dest), 'backup': str(backup)})
+
+            # Persist the prepared journal before changing the visible output.
+            _write_json(journal, _journal_record(dest, backup, previous=previous,
+                                                  phase='prepared'))
+            if previous:
                 os.replace(dest, backup)
                 moved_old = True
             os.replace(stage, dest)
-            committed = True
+            published = True
             _verify_generation(dest, expected_inputs=inputs)
-            if backup.exists():
-                shutil.rmtree(backup)
-            if journal.exists():
-                journal.unlink()
-            return result
+
+            # The irreversible boundary: from here on NEVER roll back a
+            # predecessor that may be partially removed by cleanup.
+            _write_json(journal, _journal_record(dest, backup, previous=previous,
+                                                  phase='committed'))
         except BaseException:
-            if moved_old and backup.exists():
-                # Roll back while the original verified generation still exists.
-                if dest.exists():
-                    shutil.rmtree(dest)
-                os.replace(backup, dest)
-            elif committed and not moved_old and dest.exists():
-                # A brand-new run had no predecessor to restore.
-                shutil.rmtree(dest)
-            # If backup was already cleaned, the new generation remains intact.
-            if journal.exists() and (dest.exists() or not moved_old):
-                journal.unlink()
+            # If the committed journal exists, _rollback_precommit fails safely
+            # without touching the published generation.
+            _rollback_precommit(dest, backup, previous=previous,
+                                moved_old=moved_old, published=published)
             raise
         finally:
             if stage.exists():
                 shutil.rmtree(stage)
+
+        try:
+            _remove_committed_backup(dest, backup)
+        except BaseException as exc:
+            raise PostCommitCleanupError(
+                f'published generation at {dest} is intact; cleanup is pending'
+            ) from exc
+        return result
     return call

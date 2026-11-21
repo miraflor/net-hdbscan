@@ -227,6 +227,26 @@ flat output directory. Replacement uses a rollback journal and two renames;
 A crash can temporarily leave the output directory absent until journal recovery
 on the next run. `--force` refuses to delete unrecognized output files.
 
+#### Recovery semantics and post-commit failures
+
+A versioned publication journal distinguishes the **prepared** (reversible)
+phase from a verified **committed** output. Before commitment, a failed
+replacement restores only an independently verified, complete predecessor.
+After commitment, backup deletion and journal removal are housekeeping: if
+either fails, `PostCommitCleanupError` stops execution while preserving the
+verified new generation and the journal for idempotent recovery on the next
+invocation. A partially deleted backup is **never** used for rollback. An
+unreadable journal or a missing/corrupted committed destination requires
+explicit investigation; recovery does not silently destroy a generation.
+
+Output publication is not an atomic directory-tree swap across platforms;
+readers should not treat the rename interval as an uninterrupted snapshot.
+`--force` does not overwrite arbitrary directories, including empty ones.
+The feasibility field `can_form_two_min_size_groups` is necessary, not
+sufficient, for two extracted clusters. `zero_cluster_explanation` lists
+co-occurring diagnostics rather than a unique proven cause.
+
+
 ## Author and Citation
 
 **James Matthew Miraflor**\

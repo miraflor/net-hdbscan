@@ -3,7 +3,7 @@
 ## Core invariant
 
 ```text
-points + supplied projected line network
+points + supplied projected line network (or explicit OSM-cached linework)
   → snap points to network arcs
   → compress identical snapped positions
   → sparse shortest-path distances up to a bounded horizon
@@ -15,7 +15,7 @@ Study-area or other eligibility filtering is deliberately outside the package; `
 
 ## Package scope
 
-`net-hdbscan` owns network-space HDBSCAN clustering. It does not own territory generation, Voronoi construction, network downloading, domain classification or topology repair. The package is self-contained at the application level and exposes its own network, clustering, pipeline and diagnostic interfaces.
+`net-hdbscan` owns network-space HDBSCAN clustering. It does not own territory generation, Voronoi construction, domain classification or topology repair. An optional acquisition adapter downloads and caches OSM linework without modifying the clustering core. The package is self-contained at the application level and exposes its own network, clustering, pipeline and diagnostic interfaces.
 
 The in-memory core depends on GeoPandas, NumPy, pandas, Pyogrio, SciPy and Shapely. PyArrow is an optional file extra and Typer is an optional CLI extra.
 
@@ -50,3 +50,26 @@ That stopping rule demonstrates local stability on the tested ladder only. Every
 ## Reproducibility
 
 Manifests record package version, input paths and selected layers, clustering configuration, `vertex_digits`, analysis CRS and linear unit, and graph vertex/arc/component counts. Cluster IDs and output ordering use deterministic conventions.
+
+## Domain-neutral design and acquisition boundary
+
+The abstract `hdbscan`/`fit_hierarchy` core accepts a scientifically justified
+**symmetric sparse distance matrix**; this is not restricted to geography.
+The CLI/file workflow is a **two-dimensional geospatial** network-distance
+adapter: it snaps point features to projected linework and computes undirected
+shortest-path lengths. The optional `osm_source` acquisition adapter only
+provides that linework from an **explicit** OSM request; it cannot choose a
+scientific distance model. Directional flow/travel semantics and true 3-D
+lengths are not implied by any source profile.
+
+OSM requests must specify a bbox and exactly one OSM network profile or custom
+way-tag filter. The bounded request is cached immutably with source metadata,
+retrieval time, ODbL attribution and checksum. A cache hit is verified rather
+than silently refreshed; failures do not publish a partial entry. Regional
+extract processing (e.g., Geofabrik PBF) remains a separately planned adapter.
+
+Optional `--group-col` performs independent clustering by arbitrary category.
+It never implies an industry, species, or social category as the default, and
+cross-category clusters are excluded when it is used.
+
+See `docs/NETWORK_SOURCES.md` and `docs/APPLICATIONS.md`.

@@ -1,4 +1,4 @@
-"""net-hdbscan: HDBSCAN* clustering by shortest-path distance on a spatial network."""
+"""net-hdbscan: symmetric sparse-distance HDBSCAN* with optional geospatial network workflows."""
 
 from ._version import __version__
 from .config import GROUP_OVERRIDE_FIELDS, HDBSCANConfig, read_group_params, read_group_universe
@@ -13,6 +13,7 @@ from .network import (
     snap_points,
 )
 from .comparison import ExtractionComparison, compare_extractions
+from .osm_source import fetch_osm_network, parse_bbox, _validate_selector
 from .pipeline import ClusterOutputs, cluster_files, cluster_files_by_column, cluster_geodataframes
 
 __all__ = [
@@ -39,4 +40,6 @@ __all__ = [
     "read_group_params",
     "read_group_universe",
     "snap_points",
+    "fetch_osm_network",
+    "parse_bbox",
 ]

@@ -1,13 +1,13 @@
 # net-hdbscan
 
-`net-hdbscan` clusters geospatial point observations with **HDBSCAN\*** using **shortest-path distance along a supplied spatial line network** rather than Euclidean distance.
+`net-hdbscan` provides **HDBSCAN\*** over **symmetric sparse network distances**. Its geospatial workflow clusters point observations along supplied projected line networks; an **optional, explicitly selected** OpenStreetMap adapter can obtain linework from a bounding box. It does not assume that the network is a road, that the observations are businesses, or that clustering must be stratified.
 
 It is a clustering-only package. It does not construct Voronoi territories or other downstream partitions.
 
 For a visual, step-by-step explanation of the algorithm—including network distance, snapping, sparse neighbour search, mutual reachability, the minimum spanning forest, tie-invariant hierarchy construction, condensation and cluster extraction—see the **[net-hdbscan documentation site](https://miraflor.github.io/net-hdbscan/)**.
 
 ```text
-point layer + supplied line network
+point layer + supplied or explicitly retrieved projected line network
     ↓
 snap points to the line network
     ↓
@@ -28,28 +28,63 @@ From a source checkout, with everything needed for development and the command l
 python -m pip install -e ".[dev]"
 ```
 
-The core (network distances, HDBSCAN* and the in-memory pipeline `cluster_geodataframes`) needs only GeoPandas, NumPy, pandas, Pyogrio, SciPy and Shapely 2.1 or later. Two optional extras add the rest: `files` adds PyArrow, which reading and writing (Geo)Parquet needs (`cluster_files`, `cluster_files_by_column`, `.parquet` inputs); `cli` adds PyArrow and Typer for the `net-hdbscan` command. The `dev` extra contains both, plus pytest and scikit-learn (used only by validation tests). Without an extra, the functions that need it stop with a message that names the extra to install, for example `pip install "net-hdbscan[cli]"`. The command can also be run as `python -m net_hdbscan`.
+The core (network distances, HDBSCAN* and the in-memory pipeline `cluster_geodataframes`) needs only GeoPandas, NumPy, pandas, Pyogrio, SciPy and Shapely 2.1 or later. Three optional extras add the rest: `files` adds PyArrow, which reading and writing (Geo)Parquet needs (`cluster_files`, `cluster_files_by_column`, `.parquet` inputs); `cli` adds PyArrow and Typer for the `net-hdbscan` command. The `dev` extra contains the file and CLI extras, plus pytest and scikit-learn (used only by validation tests). The independent `osm` extra adds OSMnx 2.x for explicit network acquisition; it is not required for clustering or cached network reuse. Without an extra, the functions that need it stop with a message that names the extra to install, for example `pip install "net-hdbscan[cli]"`. The command can also be run as `python -m net_hdbscan`.
+
+## Choosing a network and a scientific distance
+
+**No network source is chosen implicitly.** Supply a 2-D projected line network
+(`--network`) or select the optional OSM adapter with `--network-source osm`, an
+explicit EPSG:4326 bbox and either an OSM profile or a way-tag filter. OSM
+acquisition is cached with source metadata and SHA-256. For non-geographic
+relational networks, use the existing **symmetric sparse-distance HDBSCAN***
+Python API; a bounding box is irrelevant. Directional flow, travel-time costs
+and true 3-D network geometry are not implemented in the geospatial pipeline.
+
+**`--group-col` is optional stratification.** It runs separate cluster analyses
+within user-defined categories and prohibits cross-category clusters by design.
+There is no required industry, species, demographic, or other domain column.
+
+See [network-source and OSM guidance](docs/NETWORK_SOURCES.md) and
+[illustrative scientific applications and limitations](docs/APPLICATIONS.md).
+
+To enable open-data retrieval: `python -m pip install -e ".[dev,osm]"`.
 
 ## Quick start
 
 ```powershell
 net-hdbscan cluster `
   --points "data\points.parquet" `
-  --network "data\roads.gpkg" --network-layer roads `
+  --network "data\lines.gpkg" --network-layer lines `
   --point-id-col canonical_id `
   --max-distance 3000 `
   --min-cluster-size 20 `
   --output-dir "output\hdbscan"
 ```
 
-For grouped data:
+Alternatively, download an explicit OSM network without a local network file:
+
+```powershell
+net-hdbscan cluster `
+  --points "data\observations.parquet" `
+  --network-source osm --bbox "120.97,14.58,121.05,14.66" `
+  --osm-profile walk --point-id-col observation_id `
+  --max-distance 1500 --min-cluster-size 10 `
+  --output-dir "output\observations"
+```
+
+The `walk` profile selects an OSM **way filter**, not a directional travel model.
+Use `--osm-filter '[waterway~"river|stream"]'` instead of `--osm-profile`
+for exploratory OSM waterways, after checking the resulting topology and
+scientific validity. OSMnx 2.x is required only for a new download.
+
+For **optional independently stratified** data:
 
 ```powershell
 net-hdbscan cluster `
   --points "data\points.parquet" `
-  --network "data\roads.gpkg" --network-layer roads `
+  --network "data\lines.gpkg" --network-layer lines `
   --point-id-col canonical_id `
-  --group-col industry_code `
+  --group-col stratum `
   --max-distance 5000 `
   --distance-mode adaptive `
   --min-cluster-size 5 `
@@ -102,7 +137,7 @@ Null and blank group values are **excluded by default**. Use `--missing-group-po
 Example:
 
 ```text
-industry_code,max_distance,min_cluster_size,min_samples
+stratum,max_distance,min_cluster_size,min_samples
 31,5000,,
 55,1500,5,5
 63,1500,5,5

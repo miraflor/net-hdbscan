@@ -11,6 +11,7 @@ from ._version import __version__
 from .config import HDBSCANConfig, read_group_params, read_group_universe
 from .network import DEFAULT_MAX_NEIGHBOR_PAIRS, DEFAULT_VERTEX_DIGITS
 from .pipeline import _summary_frame, cluster_files, cluster_files_by_column
+from .osm_source import fetch_osm_network, parse_bbox, _validate_selector
 
 app = typer.Typer(add_completion=False, no_args_is_help=True, rich_markup_mode=None)
 
@@ -50,10 +51,37 @@ def _print_summary(summary: pd.DataFrame) -> None:
     typer.echo(table.to_string(index=False))
 
 
+@app.command('fetch-network')
+def fetch_network_command(
+    source: str = typer.Option(..., '--source', help="Explicit source; currently only 'osm'."),
+    bbox: str = typer.Option(..., '--bbox', help='EPSG:4326 west,south,east,north.'),
+    osm_profile: str | None = typer.Option(None, '--osm-profile', help='OSM way-access profile (not a travel-time model).'),
+    osm_filter: str | None = typer.Option(None, '--osm-filter', help='Alternative bracketed OSM way-tag filter.'),
+    osm_cache_dir: Path | None = typer.Option(None, '--osm-cache-dir', help='Immutable cached network root.'),
+) -> None:
+    """Explicitly fetch and cache network line geometry without clustering."""
+    if source != 'osm':
+        raise typer.BadParameter("only --source osm is currently implemented")
+    try:
+        area = parse_bbox(bbox)
+        profile, custom_filter = _validate_selector(osm_profile, osm_filter)
+        path = fetch_osm_network(bbox=area, profile=profile,
+                                 custom_filter=custom_filter, cache_dir=osm_cache_dir)
+    except ValueError as exc:
+        raise typer.BadParameter(str(exc)) from exc
+    typer.echo(f'Network: {path}')
+    typer.echo(f'Provenance: {path.with_name("source.json")}')
+
+
 @app.command()
 def cluster(
     points: Path = typer.Option(..., "--points", help="Point layer (GeoParquet, GeoPackage, ...)."),
-    network: Path = typer.Option(..., "--network", help="Line network in a projected CRS."),
+    network: Path | None = typer.Option(None, "--network", help="Explicit projected line network; alternative to --network-source."),
+    network_source: str | None = typer.Option(None, '--network-source', help="Explicit network provider: 'osm' only."),
+    bbox: str | None = typer.Option(None, '--bbox', help='For OSM: EPSG:4326 west,south,east,north.'),
+    osm_profile: str | None = typer.Option(None, '--osm-profile', help='OSM way-access profile, not directional routing.'),
+    osm_filter: str | None = typer.Option(None, '--osm-filter', help='Alternative OSM way-tag filter.'),
+    osm_cache_dir: Path | None = typer.Option(None, '--osm-cache-dir', help='Network cache location.'),
     output_dir: Path = typer.Option(..., "--output-dir", help="Folder for clustered points, hierarchy and diagnostics."),
     max_distance: float = typer.Option(..., "--max-distance", help="Fixed search radius, or hard ceiling in adaptive mode (CRS units)."),
     min_cluster_size: int = typer.Option(5, "--min-cluster-size", help="Smallest number of observations in a cluster."),
@@ -104,6 +132,26 @@ def cluster(
         core_truncation_tolerance=core_truncation_tolerance,
         stability_tolerance=stability_tolerance,
     )
+    # Source selection is an explicit data-model choice, not inferred from
+    # missing network input, observational categories or geographic location.
+    if network is not None:
+        if any(value is not None for value in (network_source, bbox, osm_profile, osm_filter, osm_cache_dir)):
+            raise typer.BadParameter('--network cannot be combined with OSM source options')
+    else:
+        if network_source != 'osm':
+            raise typer.BadParameter('supply --network, or explicitly select --network-source osm')
+        if bbox is None:
+            raise typer.BadParameter('--network-source osm requires --bbox')
+        if network_layer is not None:
+            raise typer.BadParameter('--network-layer is only valid with a user-supplied --network')
+        try:
+            area = parse_bbox(bbox)
+            profile, custom_filter = _validate_selector(osm_profile, osm_filter)
+            network = fetch_osm_network(bbox=area, profile=profile,
+                                        custom_filter=custom_filter, cache_dir=osm_cache_dir)
+        except ValueError as exc:
+            raise typer.BadParameter(str(exc)) from exc
+        typer.echo(f'Using cached OSM network: {network}')
     common = dict(
         points_path=points,
         network_path=network,

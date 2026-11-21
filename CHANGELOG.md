@@ -1,5 +1,19 @@
 # Changelog
 
+## Unreleased — proposed optional network acquisition and domain-neutral guidance
+
+- Add opt-in OpenStreetMap/OSMnx line-network acquisition with an explicit
+  bbox, network way-profile or user-provided tag filter, bounded public queries,
+  immutable checksum-verified GPKG cache, and acquisition provenance metadata.
+- Keep user-supplied projected line networks and symmetric sparse distance
+  matrices as the fundamental data contracts; no OSM dependency in the core.
+- Document ecology, sociology, infrastructure, health and other possible
+  representations with explicit scientific validity and directionality limits.
+- Clarify that grouping is optional independent stratification across arbitrary
+  categories—not a required industry or other domain-specific attribute.
+- Add offline tests for source selection, malformed requests, cache errors and
+  negative paths; do not alter core HDBSCAN extraction or default behavior.
+
 ## 0.2.0 — 2026-09-30
 
 - Breaking: remove study-area boundary filtering from the CLI and Python/file APIs. `net-hdbscan` now clusters every supplied point; geographic eligibility filtering belongs upstream.

@@ -11,3 +11,15 @@ Before this first release, the public sparse HDBSCAN boundary was tightened: mal
 The repository currently collects 112 tests. In the build environment used for this revision, all exercised non-Parquet tests pass. PyArrow is not installed there, so tests that physically read/write GeoParquet cannot be completed in that environment; the `dev` extra includes PyArrow and the complete suite should be run in the target development environment before committing/tagging the release.
 
 Adaptive `distance_status = "converged"` means local flat-result stability plus low resolvable core truncation under the tested geometric radius ladder. It is deliberately not described as proof that every larger horizon would preserve the result.
+
+## Post-0.2.0 adapter note (proposed, unreleased)
+
+The initial release statement that network downloading was outside package
+scope described the original package only. The proposed opt-in OSM adapter
+adds bounded acquisition and verified local caching without making OSM a
+required dependency or changing the symmetric-distance HDBSCAN* core.
+Applications outside geographic point/line networks continue to use the
+low-level sparse distance API. OSM one-way restrictions, hydrologic direction,
+physical 3-D paths, and travel-time costs are **not** silently implemented.
+The fixed historical test count above should not be interpreted as the current
+regression count. See `docs/APPLICATIONS.md` and `docs/NETWORK_SOURCES.md`.

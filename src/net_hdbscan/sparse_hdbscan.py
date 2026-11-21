@@ -783,33 +783,23 @@ def hdbscan(
     result is standard HDBSCAN*. A positive floor limits the density of
     stacked observations (see the README).
     """
-    min_samples = validate_parameters(
+    validate_parameters(
         min_cluster_size=min_cluster_size,
         min_samples=min_samples,
         cluster_selection_method=cluster_selection_method,
         cluster_selection_epsilon=cluster_selection_epsilon,
         max_cluster_size=max_cluster_size,
     )
-    graph = _validate_sparse_distance_graph(graph)
-    n = graph.shape[0]
-    weights = _validate_weights(weights, n)
-
-    floor = float(core_distance_floor)
-    if not (np.isfinite(floor) and floor >= 0):
-        raise ValueError("core_distance_floor must be a finite number >= 0")
-    core = core_distances(graph, weights, min_samples)
-    if floor > 0:
-        core = np.maximum(core, floor)
-    a, b, w = mutual_reachability_forest(graph, core)
-    hierarchy = _simultaneous_hierarchy(n, a, b, w, weights)
-    return _from_simultaneous_hierarchy(
-        n,
-        hierarchy,
-        weights,
-        core,
-        min_cluster_size=int(min_cluster_size),
-        cluster_selection_method=cluster_selection_method,
-        cluster_selection_epsilon=float(cluster_selection_epsilon),
+    fitted = fit_hierarchy(
+        graph, weights,
+        min_cluster_size=min_cluster_size,
+        min_samples=min_samples,
+        core_distance_floor=core_distance_floor,
+    )
+    return extract_clusters(
+        fitted,
+        method=cluster_selection_method,
+        cluster_selection_epsilon=cluster_selection_epsilon,
         max_cluster_size=max_cluster_size,
         allow_single_cluster=allow_single_cluster,
     )
@@ -881,10 +871,13 @@ def _finalize_condensed_tree(
     cluster_selection_epsilon: float,
     max_cluster_size: int | None,
     allow_single_cluster: bool,
+    precomputed: tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray] | None = None,
 ) -> HDBSCANResult:
     """Select clusters, assign labels and compute membership from a condensed tree."""
     epsilon = float(cluster_selection_epsilon)
-    birth, cluster_parent, cluster_size, stability = _stability(tree, k)
+    birth, cluster_parent, cluster_size, stability = (
+        _stability(tree, k) if precomputed is None else precomputed
+    )
     selected = _select(
         birth,
         cluster_parent,
@@ -961,4 +954,105 @@ def _finalize_condensed_tree(
         cluster_stability=stability,
         cluster_selected=cluster_selected,
         cluster_label=cluster_label,
+    )
+
+
+@dataclass(frozen=True)
+class FittedHierarchy:
+    """A hierarchy fitted once to a validated sparse network-distance graph.
+
+    Arrays are read-only; extraction does not mutate the fitted object.
+    This is an in-memory API, not a persistent/checkpoint interchange format.
+    """
+    n_positions: int
+    min_cluster_size: int
+    effective_min_samples: int
+    tree: CondensedTree
+    weights: np.ndarray
+    core_distances: np.ndarray
+    birth: np.ndarray
+    parent: np.ndarray
+    size: np.ndarray
+    stability: np.ndarray
+    n_clusters_in_tree: int
+
+
+def _readonly_copy(value: np.ndarray) -> np.ndarray:
+    out = np.array(value, copy=True)
+    out.setflags(write=False)
+    return out
+
+
+def fit_hierarchy(
+    graph: csr_matrix,
+    weights: np.ndarray | None = None,
+    *,
+    min_cluster_size: int = 5,
+    min_samples: int | None = None,
+    core_distance_floor: float = 0.0,
+) -> FittedHierarchy:
+    """Fit core distances, mutual-reachability forest and condensed hierarchy once."""
+    effective = validate_parameters(
+        min_cluster_size=min_cluster_size, min_samples=min_samples,
+        cluster_selection_method="eom", cluster_selection_epsilon=0.0,
+        max_cluster_size=None,
+    )
+    graph = _validate_sparse_distance_graph(graph)
+    n = graph.shape[0]
+    weights = _validate_weights(weights, n)
+    floor = float(core_distance_floor)
+    if not (np.isfinite(floor) and floor >= 0):
+        raise ValueError("core_distance_floor must be finite and >= 0")
+    core = core_distances(graph, weights, effective)
+    if floor:
+        core = np.maximum(core, floor)
+    a, b, w = mutual_reachability_forest(graph, core)
+    hierarchy = _simultaneous_hierarchy(n, a, b, w, weights)
+    tree, k = _condense_simultaneous(n, hierarchy, weights, core, int(min_cluster_size))
+    birth, parent, size, stability = _stability(tree, k)
+    frozen_tree = CondensedTree(*(_readonly_copy(getattr(tree, field))
+        for field in ("parent", "child", "lambda_val", "child_size", "child_is_cluster")))
+    return FittedHierarchy(
+        n_positions=n,
+        min_cluster_size=int(min_cluster_size),
+        effective_min_samples=effective,
+        tree=frozen_tree,
+        weights=_readonly_copy(weights),
+        core_distances=_readonly_copy(core),
+        birth=_readonly_copy(birth),
+        parent=_readonly_copy(parent),
+        size=_readonly_copy(size),
+        stability=_readonly_copy(stability),
+        n_clusters_in_tree=k,
+    )
+
+
+def extract_clusters(
+    fitted: FittedHierarchy,
+    *,
+    method: str = "eom",
+    cluster_selection_epsilon: float = 0.0,
+    max_cluster_size: int | None = None,
+    allow_single_cluster: bool = False,
+) -> HDBSCANResult:
+    """Extract EOM or leaf clusters without refitting the hierarchy."""
+    if not isinstance(fitted, FittedHierarchy):
+        raise TypeError("fitted must be a FittedHierarchy")
+    validate_parameters(
+        min_cluster_size=fitted.min_cluster_size,
+        min_samples=fitted.effective_min_samples,
+        cluster_selection_method=method,
+        cluster_selection_epsilon=cluster_selection_epsilon,
+        max_cluster_size=max_cluster_size,
+    )
+    if not isinstance(allow_single_cluster, (bool, np.bool_)):
+        raise ValueError("allow_single_cluster must be a boolean")
+    return _finalize_condensed_tree(
+        fitted.n_positions, fitted.tree, fitted.n_clusters_in_tree,
+        fitted.weights, fitted.core_distances,
+        cluster_selection_method=method,
+        cluster_selection_epsilon=float(cluster_selection_epsilon),
+        max_cluster_size=max_cluster_size,
+        allow_single_cluster=bool(allow_single_cluster),
+        precomputed=(fitted.birth, fitted.parent, fitted.size, fitted.stability),
     )

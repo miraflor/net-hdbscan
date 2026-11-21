@@ -75,12 +75,15 @@ def test_cli_reports_excluded_rows_and_undeclared_groups(files, tmp_path, points
     assert "not in --group-universe" in result.stdout and "b" in result.stdout
 
 
-def test_cli_warns_when_the_pair_limit_stops_the_search(files, tmp_path):
+def test_cli_fails_closed_when_the_pair_limit_is_reached(files, tmp_path):
+    from net_hdbscan import NeighborPairLimitError
+
     args = base_args(files, tmp_path / "out")
     args[args.index("--max-distance") + 1] = "3000"
     result = runner.invoke(app, args + ["--distance-mode", "adaptive", "--max-neighbor-pairs", "3000"])
-    assert result.exit_code == 0, result.output
-    assert "WARNING" in result.stdout and "max_neighbor_pairs" in result.stdout
+    assert result.exit_code != 0
+    assert isinstance(result.exception, NeighborPairLimitError)
+    assert not (tmp_path / "out").exists()
 
 
 def test_cluster_help_has_no_boundary_options():

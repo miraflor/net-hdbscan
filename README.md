@@ -87,7 +87,7 @@ The summary distinguishes:
 - `share_core_structurally_unreachable`: observations on components whose total effective weight is below `min_samples`;
 - `share_core_truncated`: otherwise-resolvable observations whose core distance lies beyond the current horizon.
 
-`--max-neighbor-pairs` is a hard memory-safety limit. In fixed mode exceeding it raises `NeighborPairLimitError`. In adaptive mode, if a larger trial exceeds the limit after at least one successful trial, the last successful result is kept with `distance_status = pair_cap_limited`.
+`--max-neighbor-pairs` is a **fatal hard memory-safety limit** in both fixed and adaptive modes. Exceeding it at any attempted radius raises `NeighborPairLimitError`; no earlier smaller-radius result is silently accepted. No new successful result has `distance_status = pair_cap_limited`. File outputs are staged and checked before publication; an existing verified output generation is preserved if the new run fails.
 
 ## Grouped data
 
@@ -196,3 +196,33 @@ The release was validated with fixed and adaptive regression runs on a productio
 ## License
 
 MIT.
+
+
+## Reusable hierarchy and extraction (improvement API)
+
+Fit the truncated distance hierarchy once and compare extraction methods without
+recomputing network distances or the minimum-spanning forest:
+
+```python
+from net_hdbscan import fit_hierarchy, extract_clusters, compare_extractions
+fitted = fit_hierarchy(sparse_network_distance_graph, min_cluster_size=5)
+eom = extract_clusters(fitted, method="eom")
+leaf = extract_clusters(fitted, method="leaf")
+report = compare_extractions(fitted)
+```
+
+`report.summary` contains effective-weight shares, cluster counts and extraction
+runtime; `report.eom_parent_to_leaf_descendants` maps selected hierarchy nodes.
+Comparison does not change the primary selected clustering. The fitted hierarchy
+is an in-memory object; checkpoint serialization is not supported yet.
+
+### Reliability and diagnostics
+
+Group-level summary columns now describe core-distance truncation, structural
+unreachability, size feasibility, retention and cluster dominance separately.
+The manifest includes SHA-256 digests for inputs and staged output artifacts.
+A whole output generation is staged, re-read and checked before replacing the
+flat output directory. Replacement uses a rollback journal and two renames;
+**it is not a truly atomic multi-file transaction on every operating system**.
+A crash can temporarily leave the output directory absent until journal recovery
+on the next run. `--force` refuses to delete unrecognized output files.

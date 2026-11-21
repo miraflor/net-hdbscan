@@ -26,6 +26,7 @@ from .config import (
     resolve_group_config,
 )
 from .sparse_hdbscan import hdbscan
+from .diagnostics import group_diagnostics
 from .io import (
     canonical_order,
     prepare_network,
@@ -87,6 +88,23 @@ SUMMARY_COLUMNS = [
     "missing_group_policy",
     "n_missing_group_input",
     "seconds",
+    "n_components_with_points",
+    "n_components_core_feasible",
+    "n_effective_weight",
+    "n_positions_core_unresolved",
+    "n_observations_core_unresolved",
+    "n_observations_structurally_unreachable",
+    "n_observations_core_truncated",
+    "can_form_two_min_size_groups",
+    "selected_cluster_count",
+    "retained_observation_share",
+    "largest_cluster_share_total",
+    "largest_cluster_share_retained",
+    "selected_stability_sum",
+    "zero_cluster_explanation",
+    "actual_search_radius",
+    "requested_search_ceiling",
+    "search_complete_to_ceiling",
 ]
 
 
@@ -174,6 +192,15 @@ def _cluster_unit(
             out[column] = pd.Series(dtype=dtype)
         for column in ["snap_distance", "snapped_x", "snapped_y"]:
             out[column] = pd.Series(dtype=float)
+        stats.update(group_diagnostics(
+            n_observations=0, position=np.array([], dtype=np.int64),
+            weights=np.array([], dtype=np.int64), position_components=np.array([], dtype=np.int64),
+            labels=np.array([], dtype=np.int64), core_distances=np.array([], dtype=float),
+            cluster_stability=np.zeros(1), cluster_selected=np.zeros(1, dtype=bool),
+            effective_min_samples=config.effective_min_samples,
+            min_cluster_size=config.min_cluster_size,
+            allow_single_cluster=config.allow_single_cluster,
+        ))
         return out, pd.DataFrame(), _empty_hierarchy(), stats
 
     position, representative = distinct_positions(snaps)
@@ -252,6 +279,16 @@ def _cluster_unit(
     unreachable_obs = unreachable_pos[position]
     infinite_obs = np.isinf(result.core_distances[position])
     cluster_counts = np.bincount(obs_label[obs_label >= 0]) if (obs_label >= 0).any() else np.zeros(0, dtype=np.int64)
+    stats.update(group_diagnostics(
+        n_observations=n, position=position, weights=weights,
+        position_components=pos_component, labels=obs_label,
+        core_distances=result.core_distances,
+        cluster_stability=result.cluster_stability,
+        cluster_selected=result.cluster_selected,
+        effective_min_samples=config.effective_min_samples,
+        min_cluster_size=config.min_cluster_size,
+        allow_single_cluster=config.allow_single_cluster,
+    ))
     stats.update(
         n_positions=int(n_pos),
         max_position_weight=int(counts.max()),
@@ -391,13 +428,9 @@ def _cluster_unit_with_distance_search(
     trace shows the history.
 
     The radii are ``start, start * growth, ...`` up to the ceiling, so the
-    ceiling is always tried unless the search converges or reaches the pair
-    budget first. If a trial exceeds ``max_neighbor_pairs``, the last
-    successful result is returned and marked ``pair_cap_limited``. If even
-    the first automatically chosen radius is too dense, that radius is
-    reduced (at most ``_MAX_START_REDUCTIONS`` times) until one trial fits;
-    a radius that already exceeded the budget is not tried again. An
-    explicitly supplied ``min_distance`` is never reduced.
+    ceiling is tried unless convergence happens first. A neighbor-pair cap
+    violation raises NeighborPairLimitError immediately, without replacing
+    the result with an earlier trial or reducing the attempted radius.
     """
     trace: list[dict[str, Any]] = []
 
@@ -410,6 +443,9 @@ def _cluster_unit_with_distance_search(
             distance_status=status,
             distance_steps_run=int(steps),
             distance_stable=stable,
+            actual_search_radius=float(radius),
+            requested_search_ceiling=float(config.max_distance),
+            search_complete_to_ceiling=bool(radius == config.max_distance),
             pair_limit_encountered=bool(pair_hit),
             pair_limit_distance=pair_distance,
             core_truncation_tolerance=float(config.core_truncation_tolerance),
@@ -452,34 +488,14 @@ def _cluster_unit_with_distance_search(
     while True:
         if np.isclose(radius, ceiling, rtol=1e-12, atol=0.0):
             radius = ceiling
-        if last_success is not None and radius >= smallest_failed * (1.0 - 1e-9):
-            # This radius (or a smaller one) already exceeded the pair budget.
-            # The relative margin absorbs rounding: shrinking by ``growth`` and
-            # growing again does not always give back exactly the same number.
-            return finish(
-                last_success, radius=last_radius, status="pair_cap_limited", steps=successes,
-                stable=bool(last_stable), pair_hit=True, pair_distance=pair_distance,
-            )
         trial += 1
         began = time.perf_counter()
         try:
             current = _cluster_unit(points, snaps, graph, config.replace(max_distance=radius, distance_mode="fixed"))
-        except NeighborPairLimitError as exc:
-            pair_hit = True
-            pair_distance = float(exc.max_distance)
-            smallest_failed = min(smallest_failed, radius)
-            trace.append(_trace_row(trial, radius, "pair_limit", {"n_pairs": exc.count}, np.nan, time.perf_counter() - began))
-            if last_success is not None:
-                return finish(
-                    last_success, radius=last_radius, status="pair_cap_limited", steps=successes,
-                    stable=bool(last_stable), pair_hit=True, pair_distance=pair_distance,
-                )
-            smaller = radius / growth
-            if config.min_distance is not None or smaller <= absolute_floor or reductions >= _MAX_START_REDUCTIONS:
-                raise
-            reductions += 1
-            radius = max(smaller, absolute_floor)
-            continue
+        except NeighborPairLimitError:
+            # A hard resource cap is fatal, including after an earlier successful trial.
+            # Retaining a smaller-radius result would silently change the requested analysis.
+            raise
 
         successes += 1
         stats = current[3]
@@ -604,6 +620,7 @@ def _trace_frame(parts) -> pd.DataFrame:
 def _manifest(kind: str, inputs: dict[str, Any], config: HDBSCANConfig, extra: dict[str, Any]) -> dict[str, Any]:
     return {
         "net_hdbscan_version": __version__,
+        "diagnostics_schema_version": 1,
         "created_utc": datetime.now(timezone.utc).isoformat(timespec="seconds"),
         "run": kind,
         "inputs": inputs,
@@ -881,3 +898,11 @@ def cluster_files_by_column(
     }
     write_json(output_dir / "manifest.json", _manifest("grouped", inputs, config, extra), force=force)
     return summary
+
+
+# The wrappers stage and verify ALL output files before publishing the run.
+# Existing flat output paths are preserved. A backup/journal enables rollback
+# and recovery; cross-platform multi-directory rename is not claimed atomic.
+from .publication import transactional_file_runner as _transactional_file_runner
+cluster_files = _transactional_file_runner(cluster_files)
+cluster_files_by_column = _transactional_file_runner(cluster_files_by_column)

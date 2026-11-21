@@ -144,12 +144,6 @@ def cluster(
             f"(see declared_in_universe in summary.csv): {shown}"
         )
     if "distance_status" in summary.columns:
-        limited = summary["distance_status"].eq("pair_cap_limited").sum()
-        if limited:
-            typer.echo(
-                f"WARNING: {int(limited)} group(s) stopped below the requested distance because "
-                "max_neighbor_pairs was reached; inspect summary.csv."
-            )
         group_tolerance = summary["core_truncation_tolerance"].fillna(core_truncation_tolerance)
         unresolved = (
             summary["distance_status"].eq("ceiling_reached")

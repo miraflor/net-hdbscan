@@ -14,7 +14,7 @@ if ($LASTEXITCODE -ne 0) { throw "Tests failed; commit/push/merge blocked" }
 
 Use `python -m pip install -e ".[dev,osm]"` if you will also test live OSM retrieval. OSMnx is optional; the ordinary offline suite does not require contacting Overpass. Local failure-path tests should run in addition to success-path tests.
 
-Current test coverage includes sparse graph validation, weighted and tie-heavy HDBSCAN*, equivalence with scikit-learn on applicable cases, order and ID invariance, snapping/topology, bounded shortest paths, neighbor-pair limits, adaptive-radius diagnostics, group category/sentinel handling, output manifests, OSM cache/selector failures, CLI errors, and publication rollback/recovery fault injection.
+Current test coverage includes sparse graph validation, weighted and tie-heavy HDBSCAN*, equivalence with scikit-learn on applicable cases, order and ID invariance, snapping/topology, bounded shortest paths, neighbor-pair limits, adaptive-radius diagnostics, group category/sentinel handling, output manifests, OSM cache/selector failures, **geodesic circle validation and clipping**, **waterway filter selection**, **polygon acquisition and verified cache reuse**, CLI errors, and publication rollback/recovery fault injection.
 
 ## CI requirements
 
@@ -53,8 +53,18 @@ A journal in the `prepared` phase permits rollback only to an independently veri
 
 Automated workflows must stop immediately on errors. A failed test, failed artifact verification, incomplete CI, or unexpected branch/SHA must block commits, pushes, merges, deployments, and destructive operations. Exercise injected failures as well as the happy path.
 
+## PowerShell fail-fast run discipline
+
+Run short, individually guarded commands in the correct `net-hdbscan` Git checkout and intended Python environment. A **successful** `--check` must precede `--apply`; a nonzero exit status must stop the complete workflow. Do not copy/paste a huge multiline script if your Windows PowerShell console's PSReadLine crashes on long bracketed input; use a `.ps1` script or short guarded commands instead.
+
+Before the tests, verify `git rev-parse --show-toplevel` identifies the **net-hdbscan** repository, not `net-distance-ph` or another checkout. No commit, push, merge, release or destructive action is permitted after failed or incomplete checks. New PRs require passing CI for the current head SHA across applicable platforms. The documentation patch deliberately does **not** perform Git operations, downloads or a live OSM query.
+
 ## OSM integration validation
 
-The OSM adapter requires explicit bbox and exactly one network selector. Its cache records the retrieval time, source, OSMnx version, projection, SHA-256, and attribution. Network acquisition must be tested separately from clustering. For a live smoke test, use a deliberately small bounding box, record the resulting cache path/provenance, and verify a second identical request is a validated cache hit rather than another network query.
+The OSM adapter requires **exactly one region** (bbox or center plus radius) and **exactly one network selector** (`--osm-profile` or `--osm-filter`). The named `waterways` profile is an exact shortcut for `[waterway~"^(river|stream|canal|tidal_channel)$"]`. Bbox requests preserve the original cache key; circular requests use schema 2 and include center, radius and 360 boundary segments in the request key. `source.json` records the retrieval time, source, OSMnx version, projection, geometry-clipping flag, effective filter, network SHA-256 and attribution. Network acquisition must be tested separately from clustering.
+
+Offline tests in `tests/test_osm_circle_extension.py` exercise longitude-first coordinate parsing, positive finite radius, WGS84 geodesic distance, area/pole/antimeridian rejection, polygon-versus-bbox clipping, OSMnx polygon call parameters, waterway filter selection, cache reuse, and both CLI entry points. `tests/test_osm_source.py` retains the old bbox/cache/selection failure tests. Run the **entire** pytest suite after applying the documentation overlay; a documentation patch is not permission to bypass regression tests. The current suite uses fake OSMnx responses and does not prove remote data coverage.
+
+For a **live** smoke test (not claimed completed), use a deliberately small region with known mapped waterways. Install the optional OSM extra, fetch once, inspect the GeoPackage and `source.json`, and repeat the exact request to verify no remote call on a cache hit. Validate that clipped lines truly lie in the circle, that disconnected reaches remain separate, and that observation snap distances are scientifically plausible. Record the source request and resulting checksum. Respect Overpass limits; large regions should use prepared extracts as `--network`. See [the acquisition runbook](GEOGRAPHIC_ACQUISITION.md).
 
 OSM's way filters are **not** an implementation of travel-time, one-way rules, river flow, or ecological dispersal. Do not infer that a successful data download validates the scientific distance model. See [Network sources](NETWORK_SOURCES.md).

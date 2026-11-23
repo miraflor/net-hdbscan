@@ -1,6 +1,12 @@
 # Changelog
 
-## Unreleased — proposed optional network acquisition and domain-neutral guidance
+## Unreleased — optional network acquisition, waterways and geodesic circles
+
+- Add the named `--osm-profile waterways` shortcut for OSM `river`, `stream`, `canal` and `tidal_channel` ways, without introducing hydrological or directional routing semantics.
+- Add `--center longitude,latitude --radius-km R` to both `cluster` and `fetch-network` as a mutually exclusive alternative to `--bbox`. Build a 360-sided WGS84 geodesic circle and clip the retrieved projected line network to its polygon boundary.
+- Preserve the existing bbox acquisition flow, cached request-key schema and clustering core; circle requests use a separate immutable cache-key schema and record effective filter, geometry clipping, source attribution and checksum.
+- Add offline regression/failure tests for circle parsing, area/pole/antimeridian rejection, clipped geometry, OSMnx polygon acquisition, CLI exclusivity and cache behavior. Live OSM acquisition remains an independent smoke test, not covered by mock-based unit tests.
+- Thoroughly document usage, network-versus-observation bounds, radii versus shortest-path horizons, provenance, limits and reproducibility in the README, source guide, design contract, applications, development guide and geographic acquisition runbook.
 
 - Add opt-in OpenStreetMap/OSMnx line-network acquisition with an explicit
   bbox, network way-profile or user-provided tag filter, bounded public queries,

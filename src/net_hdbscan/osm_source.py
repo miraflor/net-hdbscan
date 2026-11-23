@@ -19,7 +19,10 @@ from typing import NamedTuple
 
 import geopandas as gpd
 
-OSM_PROFILES = frozenset({'all', 'all_public', 'bike', 'drive', 'drive_service', 'walk'})
+from .region import circle_polygon, clip_lines_to_circle, parse_circle
+
+OSM_PROFILES = frozenset({'all', 'all_public', 'bike', 'drive', 'drive_service', 'walk', 'waterways'})
+WATERWAY_FILTER = '[waterway~"^(river|stream|canal|tidal_channel)$"]'
 _MAX_BBOX_KM2 = 10_000.0  # Guard public Overpass services; use regional extracts for larger jobs.
 _ADAPTER_SCHEMA = 1
 _FILTER_PATTERN = re.compile(r'(?:\[[^\[\]{};\r\n]{1,200}\])+\Z')
@@ -90,6 +93,19 @@ def _request(bbox: BoundingBox, profile: str | None, custom_filter: str | None) 
     }
 
 
+def _circle_request(circle, profile: str | None, custom_filter: str | None) -> dict:
+    # New cache-key schema only for circular regions; old bbox keys stay unchanged.
+    return {
+        'adapter_schema': 2,
+        'source': 'openstreetmap',
+        'circle_epsg4326_lon_lat_radius_km': list(circle),
+        'circle_boundary_segments': 360,
+        'osm_profile': profile,
+        'osm_custom_filter': custom_filter,
+        'distance_model': 'undirected_projected_polyline_length',
+    }
+
+
 def _validate_cache(entry: Path, request: dict) -> Path:
     if entry.is_symlink():
         raise ValueError(f'refusing symlinked OSM cache entry: {entry}')
@@ -106,7 +122,9 @@ def _validate_cache(entry: Path, request: dict) -> Path:
     return network
 
 
-def fetch_osm_network(*, bbox: str | tuple[float, float, float, float],
+def fetch_osm_network(*, bbox: str | tuple[float, float, float, float] | None = None,
+                      center: str | tuple[float, float] | None = None,
+                      radius_km: float | None = None,
                       profile: str | None = None, custom_filter: str | None = None,
                       cache_dir: str | Path | None = None) -> Path:
     """Return an immutable cached GPKG line network; fetch once if absent.
@@ -114,9 +132,20 @@ def fetch_osm_network(*, bbox: str | tuple[float, float, float, float],
     Internet and OSMnx are required only on a cache miss. This does not create
     HDBSCAN inputs or output datasets, nor silently update an existing extract.
     """
-    area = parse_bbox(bbox)
     profile, custom_filter = _validate_selector(profile, custom_filter)
-    request = _request(area, profile, custom_filter)
+    if bbox is not None:
+        if center is not None or radius_km is not None:
+            raise ValueError('choose --bbox or --center with --radius-km, not both')
+        area = parse_bbox(bbox)
+        polygon = None
+        request = _request(area, profile, custom_filter)
+    else:
+        if center is None or radius_km is None:
+            raise ValueError('provide --bbox or both --center and --radius-km')
+        circle = parse_circle(center, radius_km)
+        polygon = circle_polygon(circle)
+        area = None
+        request = _circle_request(circle, profile, custom_filter)
     key = hashlib.sha256(json.dumps(request, sort_keys=True, separators=(',', ':')).encode()).hexdigest()[:24]
     root = Path(cache_dir).expanduser().resolve() if cache_dir else _default_cache_dir().resolve()
     entry = root / key
@@ -132,12 +161,18 @@ def fetch_osm_network(*, bbox: str | tuple[float, float, float, float],
     stage = Path(tempfile.mkdtemp(prefix=f'.{key}.stage-', dir=root))
     try:
         opts = {'simplify': False, 'retain_all': True}
-        if custom_filter is not None:
+        if profile == 'waterways':
+            opts['custom_filter'] = WATERWAY_FILTER
+        elif custom_filter is not None:
             opts['custom_filter'] = custom_filter
         else:
             opts['network_type'] = profile
-        # OSMnx 2.x accepts (west, south, east, north) in the bbox argument.
-        graph = ox.graph.graph_from_bbox(tuple(area), **opts)
+        if polygon is None:
+            # Preserve the existing bbox acquisition exactly for old requests.
+            graph = ox.graph.graph_from_bbox(tuple(area), **opts)
+        else:
+            # Retain edge-adjacent boundary nodes, then clip their line geometry.
+            graph = ox.graph.graph_from_polygon(polygon, truncate_by_edge=True, **opts)
         if not len(graph.nodes) or not len(graph.edges):
             raise ValueError('OSM returned no connected line features inside the requested bbox')
         projected = ox.projection.project_graph(graph)
@@ -147,6 +182,8 @@ def fetch_osm_network(*, bbox: str | tuple[float, float, float, float],
         # Never write OSM one-way metadata into a pipeline that uses a symmetric metric.
         # Write only the geometry; osm access filtering is not vehicle routing.
         lines = gpd.GeoDataFrame(geometry=edges.geometry.reset_index(drop=True), crs=edges.crs)
+        if polygon is not None:
+            lines = clip_lines_to_circle(lines, polygon)
         from .io import prepare_network
         prepare_network(lines)
         gpkg = stage / 'network.gpkg'
@@ -162,6 +199,8 @@ def fetch_osm_network(*, bbox: str | tuple[float, float, float, float],
             'provider_software': f'osmnx {getattr(ox, "__version__", "unknown")}',
             'network_crs': str(lines.crs),
             'line_features': len(lines),
+            'clipped_to_circle': polygon is not None,
+            'resolved_osm_filter': WATERWAY_FILTER if profile == 'waterways' else custom_filter,
             'network_sha256': _sha256(gpkg),
             'interpretation': 'undirected geometric line network; directions, flow and travel restrictions are not modeled',
         }

@@ -6,7 +6,7 @@
 
 It is a clustering package, **not** a network-inference, topology-repair, transport-routing, or territory-generation package. Its methods are applicable wherever the supplied network distance has a defensible interpretation.
 
-**[Algorithm walkthrough](https://miraflor.github.io/net-hdbscan/)** · **[Network sources](docs/NETWORK_SOURCES.md)** · **[Scientific applications](docs/APPLICATIONS.md)** · **[Development and verification](docs/DEVELOPMENT.md)**
+**[Algorithm walkthrough](https://miraflor.github.io/net-hdbscan/)** · **[Geographic acquisition: roads, waterways, circles](docs/GEOGRAPHIC_ACQUISITION.md)** · **[Network sources](docs/NETWORK_SOURCES.md)** · **[Scientific applications](docs/APPLICATIONS.md)** · **[Development and verification](docs/DEVELOPMENT.md)**
 
 ## Installation
 
@@ -80,9 +80,46 @@ net-hdbscan cluster `
 
 `--bbox` is **west,south,east,north** in EPSG:4326 longitude/latitude. Choose exactly one supported `--osm-profile` or `--osm-filter`; the package will not infer the network type. A custom way filter such as `--osm-filter '[waterway~"river|stream"]'` is possible, but retrieved OSM waterways are not automatically a validated hydrological or ecological connectivity model.
 
+Alternatively, use `--center "121.04,14.65" --radius-km 10` instead of `--bbox`. The center and radius define a geodesic acquisition circle: retrieved network linework is clipped to its boundary. The named `--osm-profile waterways` selects rivers, streams, canals, and tidal channels. The bounding region limits the fetched network, **not** point eligibility; `--radius-km` and `--max-distance` have separate meanings.
+
 OSM requests use an immutable, checksum-verified local cache with acquisition provenance. Public-service availability and coverage vary. For regional extracts or non-OSM data, prepare your own projected line network and use `--network`. See [retrieval, provenance, and limitations](docs/NETWORK_SOURCES.md).
 
-### C. Optional independent stratification
+### C. Acquire OSM waterways inside a bounding box
+
+The named `waterways` profile selects OSM `river`, `stream`, `canal` and `tidal_channel` ways; this is **way selection**, not hydrological routing, navigability or flow direction.
+
+```powershell
+net-hdbscan cluster `
+  --points "data\aquatic_observations.parquet" `
+  --network-source osm `
+  --bbox "120.97,14.58,121.05,14.66" `
+  --osm-profile waterways `
+  --point-id-col observation_id `
+  --max-distance 3000 `
+  --min-cluster-size 10 `
+  --output-dir "output\waterway_bbox"
+```
+
+### D. Acquire OSM waterways inside a geodesic circle
+
+```powershell
+net-hdbscan cluster `
+  --points "data\aquatic_observations.parquet" `
+  --network-source osm `
+  --center "121.04,14.65" `
+  --radius-km 10 `
+  --osm-profile waterways `
+  --point-id-col observation_id `
+  --max-distance 3000 `
+  --min-cluster-size 10 `
+  --output-dir "output\waterway_circle"
+```
+
+`--center` is **longitude,latitude** in EPSG:4326; `--radius-km` is the geographic acquisition radius in kilometers. The circle is approximated by **360 WGS84 geodesic boundary vertices** and the downloaded lines are clipped to that polygon, not to its bounding rectangle. Use either `--bbox` **or** the **pair** `--center` and `--radius-km`, never both. The OSM adapter rejects overly large, invalid, polar and antimeridian-crossing regions.
+
+**Three distinct distances:** `--radius-km` is the geographic download extent; `--max-distance` is the shortest-path search horizon in the network's projected length units; `--max-snap-distance` optionally fails when an observation is too far from the network. Neither bbox nor circle filters the observation rows. See the [complete acquisition guide](docs/GEOGRAPHIC_ACQUISITION.md) for `fetch-network`, cache keys, provenance, compatibility, known limitations and troubleshooting.
+
+### E. Optional independent stratification
 
 Add `--group-col stratum` to a spatial clustering command when you explicitly want a separate HDBSCAN* run for each value of the `stratum` column. Group-specific overrides, missing-category rules, and declared category universes are described below.
 
@@ -174,6 +211,21 @@ result.summary     # run diagnostics
 result.trace       # tested distance radii
 ```
 
+### Optional OSM network acquisition in Python
+
+```python
+from net_hdbscan.osm_source import fetch_osm_network
+
+# A verified immutable cache hit does not download again.
+network_path = fetch_osm_network(
+    center=(121.04, 14.65),
+    radius_km=10,
+    profile="waterways",
+)
+```
+
+The acquisition function returns a path to a projected `network.gpkg`. Read it with GeoPandas and pass the line layer into `cluster_geodataframes`, or use the CLI with `--network`. OSMnx 2.x is needed for cache misses (`.[osm]`), not for the clustering core or cache hits. Detailed behavior: [Geographic acquisition](docs/GEOGRAPHIC_ACQUISITION.md).
+
 ### Sparse network distances and reusable hierarchy
 
 ```python
@@ -205,6 +257,7 @@ Spatial study-area eligibility filtering is outside the package: every supplied 
 ## Documentation and development
 
 - [Illustrated algorithm guide](https://miraflor.github.io/net-hdbscan/)
+- [Geographic acquisition: examples, selection, circles, clipping and errors](docs/GEOGRAPHIC_ACQUISITION.md)
 - [Network acquisition, cache and provenance](docs/NETWORK_SOURCES.md)
 - [Applications and modeling boundaries](docs/APPLICATIONS.md)
 - [Development, testing, CI, failure-path verification and benchmarking](docs/DEVELOPMENT.md)

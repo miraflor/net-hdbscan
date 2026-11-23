@@ -84,7 +84,7 @@ def test_impossible_one_source_dijkstra_budget_fails_before_search(monkeypatch):
     graph = network.build_network_graph([LineString([(0, 0), (10, 0)])])
     positions = network.snap_points(graph, np.array([[5.0, 0.0]]))
     monkeypatch.setattr(network, "_SEARCH_BATCH_VALUES", 1)
-    with pytest.raises(MemoryError, match="even with one source"):
+    with pytest.raises(network.LocalSearchBudgetExceeded, match="even with one source"):
         list(network._pairs_through_vertices(graph, positions,
              max_distance=10.0, max_pairs=100))
 
@@ -92,6 +92,12 @@ def test_impossible_one_source_dijkstra_budget_fails_before_search(monkeypatch):
 def test_release_metadata_is_consistent():
     from net_hdbscan._version import __version__
     root = Path(__file__).resolve().parents[1]
-    assert __version__ == "0.3.1"
-    assert "## 0.3.1" in (root / "CHANGELOG.md").read_text(encoding="utf-8")
-    assert "<span>v0.3.1</span>" in (root / "docs/index.html").read_text(encoding="utf-8")
+    import re
+    changelog = (root / "CHANGELOG.md").read_text(encoding="utf-8")
+    headings = re.findall(r"^## (\S+)", changelog, flags=re.MULTILINE)
+    releases = [h for h in headings if re.fullmatch(r"\d+\.\d+\.\d+", h)]
+    assert releases, "CHANGELOG has no release headings"
+    assert releases[0] == __version__, f"CHANGELOG {releases[0]} != __version__ {__version__}"
+    first_release = headings.index(releases[0])
+    assert "Unreleased" not in headings[first_release:], "Unreleased section below a release"
+    assert f"<span>v{__version__}</span>" in (root / "docs/index.html").read_text(encoding="utf-8")

@@ -44,7 +44,9 @@ def _require_pyarrow() -> None:
 
 def read_vector(path: str | Path, *, name: str = "input", layer: str | None = None) -> gpd.GeoDataFrame:
     """Read GeoParquet, GeoPackage, or any other format GDAL can open."""
-    path = Path(path)
+    # Keep the geospatial reader and checksumming on the SAME dataset.
+    # In particular, a symlinked .shp may point to sidecars elsewhere.
+    path = Path(path).resolve(strict=True)
     suffix = path.suffix.lower()
     if suffix in PARQUET_SUFFIXES:
         _require_pyarrow()

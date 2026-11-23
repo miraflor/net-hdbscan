@@ -23,6 +23,7 @@ from .config import (
     group_display,
     group_key,
     normalize_group_params,
+    numeric_group_key,
     resolve_group_config,
 )
 from .sparse_hdbscan import hdbscan
@@ -747,7 +748,10 @@ def cluster_files_by_column(
         raise ValueError("missing_group_policy must be 'exclude', 'include', or 'error'")
 
     raw = points[group_col]
+    numeric_groups = pd.api.types.is_numeric_dtype(raw) and not pd.api.types.is_bool_dtype(raw)
     keys = raw.map(group_key)
+    if numeric_groups:
+        keys = keys.map(numeric_group_key)
     missing_mask = keys.isin({NULL_GROUP_KEY, BLANK_GROUP_KEY})
     n_missing_input = int(missing_mask.sum())
     if missing_group_policy == "error" and n_missing_input:
@@ -769,6 +773,8 @@ def cluster_files_by_column(
     observed_values = sorted(observed.unique().tolist(), key=_group_sort_key)
     if group_universe is not None:
         universe = [group_key(v) for v in group_universe]
+        if numeric_groups:
+            universe = [numeric_group_key(v) for v in universe]
         if any(v in {NULL_GROUP_KEY, BLANK_GROUP_KEY} for v in universe):
             raise ValueError("group_universe cannot contain null/blank values")
         if len(universe) != len(set(universe)):
@@ -779,6 +785,17 @@ def cluster_files_by_column(
         values = observed_values
 
     normalized_group_params = normalize_group_params(group_params)
+    if numeric_groups and normalized_group_params:
+        renamed: dict[str, dict[str, Any]] = {}
+        for key, overrides in normalized_group_params.items():
+            canonical = numeric_group_key(key)
+            if canonical in renamed:
+                raise ValueError(
+                    f"group parameter overrides list group {group_display(canonical)!r} more than once "
+                    f"(numeric column {group_col!r}: keys are compared by value)"
+                )
+            renamed[canonical] = overrides
+        normalized_group_params = renamed
     if normalized_group_params:
         unknown = sorted(set(normalized_group_params) - set(values))
         if unknown:

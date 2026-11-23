@@ -3,9 +3,9 @@
 ## 0.3.1 — corrective hardening (release candidate; tag after verification)
 
 - Correct weighted duplicate stack condensation in the simultaneous and binary hierarchy paths.
-- Bound the Dijkstra result allocation by counting source nodes; reject an impossible one-source budget.
-- Hash entire directory inputs and shapefile sidecars, with name-sensitive multi-file checksums.
-- Canonicalize integral floating group keys; preserve distinct blank/null groups across pandas versions and protect internal output tokens; reject dense distance arrays; clarify parameter errors.
+- Bound Dijkstra output allocations including source nodes. Fail fast with a clear value error if even one source exceeds the budget; no implicit memory overrun.
+- Hash full directory datasets and exact shapefile sidecars (not nearby datasets); support top-level symlinked inputs with resolved-path provenance and reject unsafe nested directory links.
+- Canonicalize numeric groups and CSV overrides exactly using decimal arithmetic (including large integers and scientific notation); preserve distinct blank/null groups; reject dense distance arrays and improve CLI errors. Numeric group output names can change compared with v0.3.0.
 - Fix version provenance, declare pyproj directly, extend CI to Python 3.10–3.13.
 - Clarify frequent tied-distance differences from scikit-learn and zero-strength membership for stacked points.
 - Retain historical `groups_outside_universe` warning semantics in the patch release.
@@ -14,6 +14,7 @@
 
 ## 0.3.0 — 2026-11-23 (OSM waterways and geodesic circular network acquisition)
 
+- Provenance: packages built from the immutable `v0.3.0` tag at `0c7568b` report version `0.2.0` in their generated manifests; identify them by tag/commit rather than the recorded package version.
 - Add the named `--osm-profile waterways` shortcut for OSM `river`, `stream`, `canal` and `tidal_channel` ways, without introducing hydrological or directional routing semantics.
 - Add `--center longitude,latitude --radius-km R` to both `cluster` and `fetch-network` as a mutually exclusive alternative to `--bbox`. Build a 360-sided WGS84 geodesic circle and clip the retrieved projected line network to its polygon boundary.
 - Preserve the existing bbox acquisition flow, cached request-key schema and clustering core; circle requests use a separate immutable cache-key schema and record effective filter, geometry clipping, source attribution and checksum.

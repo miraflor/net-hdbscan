@@ -3,15 +3,18 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import NoReturn
 
 import pandas as pd
 import typer
+from pyogrio.errors import DataLayerError, DataSourceError
 
 from ._version import __version__
 from .config import HDBSCANConfig, read_group_params, read_group_universe
 from .network import DEFAULT_MAX_NEIGHBOR_PAIRS, DEFAULT_VERTEX_DIGITS
 from .pipeline import _summary_frame, cluster_files, cluster_files_by_column
 from .osm_source import fetch_osm_network, parse_bbox, _validate_selector
+from .publication import OutputPublicationError
 from .region import parse_circle
 
 app = typer.Typer(add_completion=False, no_args_is_help=True, rich_markup_mode=None)
@@ -83,6 +86,26 @@ def fetch_network_command(
         raise typer.BadParameter(str(exc)) from exc
     typer.echo(f'Network: {path}')
     typer.echo(f'Provenance: {path.with_name("source.json")}')
+
+
+# Errors caused by the user's inputs, parameters or output folder. They are
+# reported as one message with exit code 1 instead of a Python traceback.
+# Unexpected internal errors still show a traceback.
+_USER_ERRORS = (
+    ValueError,
+    OSError,
+    OutputPublicationError,
+    DataSourceError,
+    DataLayerError,
+)
+
+
+def _fail(exc: BaseException) -> NoReturn:
+    """Print an input or output error, including notes such as the failing group."""
+    lines = [str(exc), *getattr(exc, "__notes__", ())]
+    flat = [" ".join(str(line).splitlines()) for line in lines if str(line).strip()]
+    typer.echo("Error: " + "; ".join(flat), err=True)
+    raise typer.Exit(code=1) from exc
 
 
 def _validated_config(**kwargs) -> HDBSCANConfig:
@@ -195,18 +218,24 @@ def cluster(
             raise typer.BadParameter("--group-params requires --group-col")
         if group_universe is not None:
             raise typer.BadParameter("--group-universe requires --group-col")
-        outputs = cluster_files(**common)
+        try:
+            outputs = cluster_files(**common)
+        except _USER_ERRORS as exc:
+            _fail(exc)
         summary = _summary_frame([outputs.summary])
     else:
-        overrides = read_group_params(group_params, group_col) if group_params is not None else None
-        universe = read_group_universe(group_universe, group_col) if group_universe is not None else None
-        summary = cluster_files_by_column(
-            group_col=group_col,
-            group_params=overrides,
-            group_universe=universe,
-            missing_group_policy=missing_group_policy,
-            **common,
-        )
+        try:
+            overrides = read_group_params(group_params, group_col) if group_params is not None else None
+            universe = read_group_universe(group_universe, group_col) if group_universe is not None else None
+            summary = cluster_files_by_column(
+                group_col=group_col,
+                group_params=overrides,
+                group_universe=universe,
+                missing_group_policy=missing_group_policy,
+                **common,
+            )
+        except _USER_ERRORS as exc:
+            _fail(exc)
     _print_summary(summary)
     excluded = int(summary.attrs.get("n_missing_group_input", 0)) if hasattr(summary, "attrs") else 0
     if excluded and summary.attrs.get("missing_group_policy") == "exclude":

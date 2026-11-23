@@ -12,11 +12,11 @@ The repository currently collects 112 tests. In the build environment used for t
 
 Adaptive `distance_status = "converged"` means local flat-result stability plus low resolvable core truncation under the tested geometric radius ladder. It is deliberately not described as proof that every larger horizon would preserve the result.
 
-## Post-0.2.0 adapter note (proposed, unreleased)
+## 0.3.0 adapter note
 
 The initial release statement that network downloading was outside package
-scope described the original package only. The proposed opt-in OSM adapter
-adds bounded acquisition and verified local caching without making OSM a
+scope described the original package only. The opt-in OSM adapter, released
+in 0.3.0, adds bounded acquisition and verified local caching without making OSM a
 required dependency or changing the symmetric-distance HDBSCAN* core.
 Applications outside geographic point/line networks continue to use the
 low-level sparse distance API. OSM one-way restrictions, hydrologic direction,
@@ -24,7 +24,7 @@ physical 3-D paths, and travel-time costs are **not** silently implemented.
 The fixed historical test count above should not be interpreted as the current
 regression count. See `docs/APPLICATIONS.md` and `docs/NETWORK_SOURCES.md`.
 
-## Post-0.2.0 acquisition extension (unreleased)
+## 0.3.0 acquisition extension
 
 The opt-in OSM adapter now offers an explicit **waterways** way-tag profile and a **center-plus-radius** geodesic polygon region as an alternative to a bounding box. The region constrains **acquired line geometry only**; study-area filtering of input observations remains out of scope. Circle geometry uses a 360-segment WGS84 geodesic polygon and projected line clipping. Bbox cache identities remain compatible while circular requests have separately keyed metadata. The symmetric line-length model and HDBSCAN* core are unchanged.
 

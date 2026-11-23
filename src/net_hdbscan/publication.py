@@ -29,48 +29,72 @@ class PostCommitCleanupError(OutputPublicationError):
     """
 
 
-def _hash(path: Path) -> str:
-    """Hash all members of directory or shapefile datasets, not just .shp.
+# Files GDAL reads to build a shapefile's geometry, attributes, encoding and
+# CRS. Spatial indexes (.qix, .sbn, .sbx) and metadata (.shp.xml) do not
+# change the data and are excluded.
+_SHAPEFILE_MEMBER_SUFFIXES = frozenset({".shp", ".shx", ".dbf", ".prj", ".cpg"})
 
-    Single ordinary files retain their bytewise SHA-256. Multi-file inputs
-    bind every member's relative filename, length and content into one digest.
+
+# These are the essential logical members of an ESRI shapefile. Ignore
+# unrelated datasets (roads.old.shp), optional indices, and .shp.xml metadata.
+_SHAPEFILE_MEMBER_SUFFIXES = frozenset({".shp", ".shx", ".dbf", ".prj", ".cpg"})
+
+
+def _hash(path: Path) -> str:
+    """SHA-256 over the dataset actually opened by read_vector.
+
+    Top-level symlinks are resolved both here and in read_vector, ensuring
+    that sidecars are enumerated beside the same target .shp read by GDAL.
+    Nested directory symlinks are rejected: rglob would otherwise omit their
+    contents and create an incomplete hash. File symlinks are allowed and
+    their target bytes are hashed under the member's relative name.
     """
-    path = Path(path)
-    if path.is_symlink():
-        raise ValueError(f"refusing symlink input: {path}")
+    supplied = Path(path)
+    if not supplied.exists():
+        raise FileNotFoundError(f"input dataset is not a regular file or directory: {supplied}")
+    path = supplied.resolve(strict=True)
     if path.is_dir():
         root = path
-        files = sorted(
-            (p for p in path.rglob("*") if p.is_file() or p.is_symlink()),
-            key=lambda p: p.relative_to(path).as_posix(),
-        )
-    elif path.is_file() and path.suffix.lower() == ".shp":
+        entries = list(root.rglob("*"))
+        nested_dir_links = [p for p in entries if p.is_symlink() and p.is_dir()]
+        if nested_dir_links:
+            raise ValueError(f"nested directory symlink cannot be checksummed safely: {nested_dir_links[0]}")
+        files = sorted((p for p in entries if p.is_file() or p.is_symlink()),
+                       key=lambda p: p.relative_to(root).as_posix())
+        multifile = True
+    elif path.is_file() and path.suffix.casefold() == ".shp":
         root = path.parent
-        files = sorted(
-            (p for p in root.iterdir()
-             if p.name.startswith(path.stem + ".") and (p.is_file() or p.is_symlink())),
-            key=lambda p: p.name,
-        )
+        files = sorted((p for p in root.iterdir()
+                        if p.stem.casefold() == path.stem.casefold()
+                        and p.suffix.casefold() in _SHAPEFILE_MEMBER_SUFFIXES
+                        and (p.is_file() or p.is_symlink())),
+                       key=lambda p: p.name)
+        # Identically named sidecars differing only by case are ambiguous
+        # across Windows/Linux and must never be silently hashed as one set.
+        names = [(p.stem.casefold(), p.suffix.casefold()) for p in files]
+        if len(names) != len(set(names)):
+            raise ValueError(f"ambiguous duplicate shapefile members: {path}")
+        multifile = True
     elif path.is_file():
         root = path.parent
         files = [path]
+        multifile = False
     else:
-        raise FileNotFoundError(f"input dataset is not a regular file or directory: {path}")
+        raise FileNotFoundError(f"input dataset is not a regular file or directory: {supplied}")
 
     if not files:
-        raise ValueError(f"input dataset is empty: {path}")
-    multifile = path.is_dir() or path.suffix.lower() == ".shp"
+        raise ValueError(f"input dataset is empty: {supplied}")
     h = hashlib.sha256()
     for member in files:
-        if member.is_symlink() or not member.is_file():
-            raise ValueError(f"refusing non-regular dataset member: {member}")
+        if not member.is_file():
+            raise ValueError(f"unreadable or non-regular dataset member: {member}")
         if multifile:
-            name = member.relative_to(root).as_posix().encode("utf-8")
-            h.update(len(name).to_bytes(8, "big"))
-            h.update(name)
+            relative = member.relative_to(root).as_posix().encode("utf-8")
+            h.update(len(relative).to_bytes(8, "big"))
+            h.update(relative)
             h.update(member.stat().st_size.to_bytes(8, "big"))
-        with member.open("rb") as stream:
-            for chunk in iter(lambda: stream.read(1024 * 1024), b""):
+        with member.open("rb") as source:
+            for chunk in iter(lambda: source.read(1024 * 1024), b""):
                 h.update(chunk)
     return h.hexdigest()
 
@@ -197,6 +221,11 @@ def _verify_partition(points, clusters, hierarchy):
 
 def _input_checksums(kwargs: dict) -> dict[str, str]:
     return {name: _hash(Path(kwargs[name])) for name in ('points_path', 'network_path')}
+
+
+def _input_resolved_paths(kwargs: dict) -> dict[str, str]:
+    """Absolute input paths after following symbolic links, for provenance."""
+    return {name: str(Path(kwargs[name]).resolve()) for name in ('points_path', 'network_path')}
 
 
 def _journal_path(destination: Path) -> Path:
@@ -381,7 +410,10 @@ def transactional_file_runner(original):
                 raise OutputPublicationError('refusing --force on directory containing unknown or missing files')
         # The native dependency check must precede input access/hashing.
         original.__globals__['_require_pyarrow']()
+        resolved_inputs = _input_resolved_paths(kw)
         inputs = _input_checksums(kw)
+        if _input_resolved_paths(kw) != resolved_inputs:
+            raise OutputPublicationError('input symlink targets changed during checksum')
         stage = Path(tempfile.mkdtemp(prefix='.'+dest.name+'.stage-', dir=dest.parent))
         backup = dest.parent / ('.'+dest.name+'.backup-'+uuid.uuid4().hex)
         journal = _journal_path(dest)
@@ -392,14 +424,15 @@ def transactional_file_runner(original):
             kw['output_dir'] = stage
             kw['force'] = False
             result = original(**kw)
-            if _input_checksums(kw) != inputs:
-                raise OutputPublicationError('input files changed during clustering')
+            if _input_resolved_paths(kw) != resolved_inputs or _input_checksums(kw) != inputs:
+                raise OutputPublicationError('input files or symlink targets changed during clustering')
             info = _verify_generation(stage)
             docpath = stage / 'manifest.json'
             doc = json.loads(docpath.read_text(encoding='utf-8'))
             doc['manifest_schema_version'] = 2
             doc['package'] = 'net-hdbscan'
             doc['input_sha256'] = inputs
+            doc['input_resolved_paths'] = resolved_inputs
             doc['output_integrity'] = info
             _write_json(docpath, doc)
             _verify_generation(stage, expected_inputs=inputs)

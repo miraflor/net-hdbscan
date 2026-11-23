@@ -179,8 +179,10 @@ class HDBSCANConfig:
 # strings. User-facing missing-group tokens stay ``__null__`` and ``__blank__``.
 NULL_GROUP_TOKEN = "__null__"
 BLANK_GROUP_TOKEN = "__blank__"
-NULL_GROUP_KEY = "\0net_hdbscan:null"
-BLANK_GROUP_KEY = "\0net_hdbscan:blank"
+# Control-A is not a C string terminator: unlike NUL it remains distinct
+# in pandas 2.x unique()/groupby. Never accept these as raw group names.
+NULL_GROUP_KEY = "\x01net_hdbscan:null"
+BLANK_GROUP_KEY = "\x01net_hdbscan:blank"
 
 _INT_FIELDS = {"min_cluster_size", "min_samples", "max_cluster_size", "distance_steps"}
 _FLOAT_FIELDS = {
@@ -204,6 +206,8 @@ def group_key(value) -> str:
     if isinstance(value, (float, np.floating)) and np.isfinite(value) and float(value).is_integer():
         value = int(value)
     text = str(value)
+    if text in {NULL_GROUP_KEY, BLANK_GROUP_KEY}:
+        raise ValueError("input contains reserved internal group key")
     return BLANK_GROUP_KEY if text.strip() == "" else text
 
 

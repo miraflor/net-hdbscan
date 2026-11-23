@@ -681,7 +681,14 @@ def cluster_files(
 
 def group_output_token(value) -> str:
     """Filesystem-safe, unambiguous token of a group value or internal key."""
-    return quote(group_display(group_key(value)), safe="-_.~")
+    # Raw input values are normalized exactly once. An internal missing-group
+    # key is already normalized and must not be passed to group_key() again,
+    # because group_key() rejects raw values that impersonate these keys.
+    if isinstance(value, str) and value in {NULL_GROUP_KEY, BLANK_GROUP_KEY}:
+        key = value
+    else:
+        key = group_key(value)
+    return quote(group_display(key), safe="-_.~")
 
 
 def _refuse_existing(paths, force: bool) -> None:

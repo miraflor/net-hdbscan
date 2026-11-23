@@ -159,3 +159,36 @@ def test_group_parameter_reserved_tokens_can_be_escaped_as_literals(tmp_path):
     assert got[BLANK_GROUP_KEY]["max_distance"] == 1100
     assert got["__null__"]["max_distance"] == 1200
     assert got["__blank__"]["max_distance"] == 1300
+
+
+def test_internal_group_sentinels_do_not_collide_in_pandas_unique():
+    """Pandas 2.x may collapse different strings beginning with NUL in unique()."""
+    from net_hdbscan.config import BLANK_GROUP_KEY, NULL_GROUP_KEY, group_key
+
+    raw = pd.Series([None, "", "   ", "a", None, "b"], dtype=object)
+    keys = raw.map(group_key)
+    unique = keys.unique().tolist()
+    assert set(unique) == {NULL_GROUP_KEY, BLANK_GROUP_KEY, "a", "b"}
+    assert len(unique) == 4
+    assert int(keys.eq(NULL_GROUP_KEY).sum()) == 2
+    assert int(keys.eq(BLANK_GROUP_KEY).sum()) == 2
+    assert pd.Series([NULL_GROUP_KEY, BLANK_GROUP_KEY], dtype=object).nunique() == 2
+
+
+def test_actual_group_values_cannot_impersonate_internal_sentinels():
+    from net_hdbscan.config import BLANK_GROUP_KEY, NULL_GROUP_KEY, group_key
+
+    for sentinel in (NULL_GROUP_KEY, BLANK_GROUP_KEY):
+        with pytest.raises(ValueError, match="reserved internal group key"):
+            group_key(sentinel)
+
+
+def test_group_output_token_accepts_internal_keys_without_renormalizing():
+    from net_hdbscan.config import BLANK_GROUP_KEY, NULL_GROUP_KEY
+    from net_hdbscan.pipeline import group_output_token
+
+    assert group_output_token(NULL_GROUP_KEY) == "__null__"
+    assert group_output_token(BLANK_GROUP_KEY) == "__blank__"
+    assert group_output_token("__null__") == "literal%3A__null__"
+    assert group_output_token("__blank__") == "literal%3A__blank__"
+    assert group_output_token("ordinary") == "ordinary"

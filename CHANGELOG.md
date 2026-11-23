@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.3.1 — corrective hardening (release candidate; tag after verification)
+
+- Correct weighted duplicate stack condensation in the simultaneous and binary hierarchy paths.
+- Bound the Dijkstra result allocation by counting source nodes; reject an impossible one-source budget.
+- Hash entire directory inputs and shapefile sidecars, with name-sensitive multi-file checksums.
+- Canonicalize integral floating group keys; reject dense distance arrays; clarify parameter errors.
+- Fix version provenance, declare pyproj directly, extend CI to Python 3.10–3.13.
+- Clarify frequent tied-distance differences from scikit-learn and zero-strength membership for stacked points.
+- Retain historical `groups_outside_universe` warning semantics in the patch release.
+- Keep the existing `v0.3.0` tag immutable.
+
+
 ## Unreleased — optional network acquisition, waterways and geodesic circles
 
 - Add the named `--osm-profile waterways` shortcut for OSM `river`, `stream`, `canal` and `tidal_channel` ways, without introducing hydrological or directional routing semantics.

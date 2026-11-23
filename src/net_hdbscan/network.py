@@ -33,6 +33,7 @@ with the size of the whole network.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from math import isqrt
 
 import numpy as np
 import shapely
@@ -330,7 +331,7 @@ class NeighborPairLimitError(ValueError):
         super().__init__(
             f"at least {self.count:,} pairs of snapped positions are within "
             f"max_distance={self.max_distance:g}, above max_neighbor_pairs={self.max_pairs:,}. "
-            "Use a smaller max_distance, adaptive distance mode, or raise max_neighbor_pairs "
+            "Use a smaller max_distance or raise max_neighbor_pairs "
             "(each pair needs roughly 100-200 bytes at peak)."
         )
 
@@ -575,7 +576,16 @@ def _pairs_through_vertices(graph: NetworkGraph, pos: Snaps, max_distance: float
         if len(local) == 0:
             continue
         local_of[local] = np.arange(len(local))
-        per_chunk = max(1, _SEARCH_BATCH_VALUES // (len(local) + 2))
+        # Dijkstra returns S x (L + S + 2), not S x (L + 2).
+        # Integer arithmetic prevents rounding above the advertised budget.
+        b = len(local) + 2
+        if b + 1 > _SEARCH_BATCH_VALUES:
+            raise MemoryError(
+                "local Dijkstra result exceeds _SEARCH_BATCH_VALUES even with one source; "
+                "reduce the distance horizon or simplify the network"
+            )
+        per_chunk = (isqrt(b * b + 4 * _SEARCH_BATCH_VALUES) - b) // 2
+        assert per_chunk >= 1 and per_chunk * (b + per_chunk) <= _SEARCH_BATCH_VALUES
         for c0 in range(0, len(batch), per_chunk):
             sources = batch[c0 : c0 + per_chunk]
             S = len(sources)

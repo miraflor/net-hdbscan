@@ -85,6 +85,13 @@ def fetch_network_command(
     typer.echo(f'Provenance: {path.with_name("source.json")}')
 
 
+def _validated_config(**kwargs) -> HDBSCANConfig:
+    try:
+        return HDBSCANConfig(**kwargs)
+    except ValueError as exc:
+        raise typer.BadParameter(str(exc)) from exc
+
+
 @app.command()
 def cluster(
     points: Path = typer.Option(..., "--points", help="Point layer (GeoParquet, GeoPackage, ...)."),
@@ -126,7 +133,7 @@ def cluster(
     force: bool = typer.Option(False, "--force", help="Replace existing outputs."),
 ) -> None:
     """Cluster points and write point labels, hierarchy and diagnostics."""
-    config = HDBSCANConfig(
+    config = _validated_config(
         max_distance=max_distance,
         min_cluster_size=min_cluster_size,
         min_samples=min_samples,

@@ -160,6 +160,13 @@ With `--distance-mode fixed`, the requested horizon is used directly. With `adap
 
 `--max-neighbor-pairs` is a fatal resource limit, including in adaptive mode: exceeding it aborts rather than silently returning a smaller-radius result.
 
+**Tie semantics.** All equal mutual-reachability distances are processed as simultaneous multifurcations rather than arbitrarily ordered binary splits. Ties are common with network distances and `min_samples > 1`, so partitions can differ from scikit-learn, even for the same complete distance matrix. This row-order-invariant behavior is deliberate; do not interpret reference disagreement alone as an algorithm defect.
+
+**Duplicate stacks and membership.** With `--duplicates count`, a position is counted with its observation multiplicity. A stack whose weight reaches `min_cluster_size` but not `min_samples` cannot persist as its own cluster past its core-distance split. If a stack has zero core distance, its cluster may have infinite maximum lambda and other labelled members can have membership 0. A positive `--core-distance-floor` or `--duplicates once` changes that behavior, but also changes the scientific model.
+
+**Provenance.** SHA-256 input integrity covers ordinary file bytes. For shapefiles and directory datasets such as `.gdb`, the digest incorporates all member filenames, sizes and bytes, so changes to `.prj` and `.dbf` are detected. Such a composite hash intentionally differs from hashing `.shp` alone.
+
+
 ### Grouping details (optional)
 
 With `--group-col`, group runs share network preparation and point snapping while performing separate cluster extraction. Null/blank groups are excluded by default (`--missing-group-policy exclude`); choose `include` or `error` deliberately. Reserved display tokens `__null__` and `__blank__` distinguish missing group values, while literal categories with those names are preserved using `literal:` disambiguation.

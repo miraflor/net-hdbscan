@@ -286,3 +286,47 @@ def test_duplicate_sparse_entries_are_rejected_before_scipy_can_sum_them():
     assert not graph.has_canonical_format
     with pytest.raises(ValueError, match="duplicate stored entry"):
         hdbscan(graph, min_cluster_size=2)
+
+
+def _expanded_review_reference(d, w, **kwargs):
+    """Use explicit zero entries when expanding compressed observations."""
+    from scipy.sparse import coo_matrix
+    owner = np.repeat(np.arange(len(w)), w)
+    big = d[np.ix_(owner, owner)]
+    rows, cols = np.nonzero(~np.eye(len(owner), dtype=bool) & np.isfinite(big))
+    graph = coo_matrix((big[rows, cols], (rows, cols)), shape=big.shape).tocsr()
+    return hdbscan(graph, None, **kwargs), owner
+
+
+def test_review_isolated_stack_is_noise():
+    rng = np.random.default_rng(0)
+    xy = np.vstack([rng.normal([0, 0], 1, (30, 2)),
+                    rng.normal([100, 0], 1, (30, 2)), [[50.0, 50.0]]])
+    w = np.ones(len(xy), np.int64)
+    w[-1] = 6
+    found = hdbscan(truncated(xy, 10.0), w, min_cluster_size=5, min_samples=10)
+    assert np.isinf(found.core_distances[-1])
+    assert found.labels[-1] == -1
+    assert found.n_clusters == 2
+
+
+@pytest.mark.parametrize("method", ["eom", "leaf"])
+def test_review_weighted_and_explicit_expansion_match(method):
+    for seed in range(40):
+        rng = np.random.default_rng(seed)
+        xy = np.vstack([rng.normal([0, 0], 3, (40, 2)),
+                        rng.normal([25, 0], 3, (40, 2))])
+        w = np.ones(len(xy), np.int64)
+        w[rng.choice(len(xy), 2, replace=False)] = rng.integers(5, 12, 2)
+        d = cdist(xy, xy)
+        options = dict(min_cluster_size=5, min_samples=12,
+                       cluster_selection_method=method)
+        weighted = hdbscan(csr_matrix(d), w, **options)
+        expanded, owner = _expanded_review_reference(d, w, **options)
+        assert same_partition(weighted.labels[owner], expanded.labels), seed
+        assert np.allclose(weighted.core_distances[owner], expanded.core_distances)
+
+
+def test_review_dense_distance_arrays_fail_explicitly():
+    with pytest.raises(ValueError, match="SciPy sparse distance matrix"):
+        hdbscan(np.array([[0.0, 0.0], [0.0, 0.0]]), min_cluster_size=2)

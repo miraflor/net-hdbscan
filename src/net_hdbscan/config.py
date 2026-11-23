@@ -67,7 +67,7 @@ class HDBSCANConfig:
         ``"fixed"`` (default) uses ``max_distance`` exactly. ``"adaptive"``
         treats it as a hard ceiling and grows a smaller search radius until
         the flat result reaches a stable low-truncation plateau, the ceiling
-        is reached, or the pair budget prevents a larger trial.
+        is reached. Exceeding the pair budget aborts the entire run.
     min_distance
         Optional first radius in adaptive mode. If omitted, a geometric
         ladder is derived from ``max_distance``, ``distance_growth`` and
@@ -201,6 +201,8 @@ def group_key(value) -> str:
     """Internal key of a group value, keeping missing values distinct from text."""
     if value is None or (not isinstance(value, str) and pd.isna(value)):
         return NULL_GROUP_KEY
+    if isinstance(value, (float, np.floating)) and np.isfinite(value) and float(value).is_integer():
+        value = int(value)
     text = str(value)
     return BLANK_GROUP_KEY if text.strip() == "" else text
 

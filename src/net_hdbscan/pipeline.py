@@ -375,10 +375,6 @@ def _flat_result_stable(previous, current, tolerance: float) -> bool:
     )
 
 
-# Maximum number of times an automatically chosen first radius is reduced
-# when even that radius exceeds max_neighbor_pairs.
-_MAX_START_REDUCTIONS = 12
-
 # Columns of the per-trial record (the grouped writer adds a "group" column).
 TRACE_COLUMNS = [
     "trial",
@@ -471,18 +467,10 @@ def _cluster_unit_with_distance_search(
     growth = float(config.distance_growth)
     tolerance = float(config.core_truncation_tolerance)
     radius = _adaptive_start_distance(config)
-    explicit_floor = float(config.min_distance) if config.min_distance is not None else 0.0
-    absolute_floor = max(explicit_floor, float(config.core_distance_floor) * (1.0 + 1e-12))
-
     previous = None
-    last_success = None
-    last_radius = None
-    last_stable = False
     successes = 0
-    reductions = 0
-    pair_hit = False
+    pair_hit = False  # historical output schema; pair overrun is now fatal
     pair_distance = np.nan
-    smallest_failed = np.inf
     trial = 0
 
     while True:
@@ -501,7 +489,6 @@ def _cluster_unit_with_distance_search(
         stats = current[3]
         stable = previous is not None and _flat_result_stable(previous, current, config.stability_tolerance)
         trace.append(_trace_row(trial, radius, "ok", stats, bool(stable) if previous is not None else np.nan, time.perf_counter() - began))
-        last_success, last_radius, last_stable = current, radius, stable
 
         # Every observation lies on a network component whose total weight is
         # below min_samples: no radius can produce a cluster.

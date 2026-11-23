@@ -107,3 +107,15 @@ def test_cli_invalid_group_parameters_use_plain_error_formatting(tmp_path):
     assert result.exit_code == 2
     assert '--group-params requires --group-col' in result.output
     assert 'Traceback (most recent call last)' not in result.output
+
+
+def test_review_bad_parameter_has_no_python_traceback():
+    from typer.testing import CliRunner
+    from net_hdbscan.cli import app
+    result = CliRunner().invoke(app, [
+        "cluster", "--points", "missing.parquet", "--network", "missing.gpkg",
+        "--output-dir", "unused", "--max-distance", "100", "--min-cluster-size", "1",
+    ])
+    assert result.exit_code != 0
+    assert "min_cluster_size" in result.output
+    assert "Traceback (most recent call last)" not in result.output

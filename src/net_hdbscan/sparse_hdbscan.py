@@ -45,7 +45,7 @@ from collections import deque
 from dataclasses import dataclass
 
 import numpy as np
-from scipy.sparse import coo_matrix, csr_matrix
+from scipy.sparse import coo_matrix, csr_matrix, issparse
 from scipy.sparse.csgraph import minimum_spanning_tree
 
 _TINY = np.finfo(float).tiny
@@ -417,10 +417,15 @@ def _condense(n, left, right, distance, size, tops, weights, core, min_cluster_s
                 stack.append(int(right[x - n]))
                 stack.append(int(left[x - n]))
 
+    def is_big(node: int, split_distance: float) -> bool:
+        # A weight-w position represents w leaves splitting internally at
+        # its core distance. Weight alone does not give it a lifetime.
+        return size[node] >= min_cluster_size and (node >= n or core[node] < split_distance)
+
     relabel: dict[int, int] = {}
     queue: deque[int] = deque()
     next_cluster = 1
-    big = [int(t) for t in tops if size[t] >= min_cluster_size]
+    big = [int(t) for t in tops if is_big(int(t), np.inf)]
     if len(big) >= 2:
         for t in big:
             relabel[t] = next_cluster
@@ -430,8 +435,9 @@ def _condense(n, left, right, distance, size, tops, weights, core, min_cluster_s
     elif len(big) == 1:
         relabel[big[0]] = 0
         queue.append(big[0])
+    big_tops = set(big)
     for t in tops:
-        if size[t] < min_cluster_size:
+        if int(t) not in big_tops:
             fall_out(int(t), 0, 0.0)
 
     while queue:
@@ -450,7 +456,7 @@ def _condense(n, left, right, distance, size, tops, weights, core, min_cluster_s
             fall_out(node, cluster, np.inf)
             continue
         lam = 1.0 / d
-        big_l, big_r = size[l] >= min_cluster_size, size[r] >= min_cluster_size
+        big_l, big_r = is_big(l, d), is_big(r, d)
         if big_l and big_r:
             for child in (l, r):
                 relabel[child] = next_cluster
@@ -521,10 +527,17 @@ def _condense_simultaneous(
             else:
                 stack.extend(int(c) for c in node_children(x))
 
+    def is_big(node: int, split_distance: float) -> bool:
+        # A compressed position is a persistent child only below the
+        # distance at which the identical observations split internally.
+        return hierarchy.size[node] >= min_cluster_size and (
+            node >= n or core[node] < split_distance
+        )
+
     relabel: dict[int, int] = {}
     queue: deque[int] = deque()
     next_cluster = 1
-    big = [int(t) for t in hierarchy.tops if hierarchy.size[t] >= min_cluster_size]
+    big = [int(t) for t in hierarchy.tops if is_big(int(t), np.inf)]
     if len(big) >= 2:
         for t in big:
             relabel[t] = next_cluster
@@ -534,8 +547,9 @@ def _condense_simultaneous(
     elif len(big) == 1:
         relabel[big[0]] = 0
         queue.append(big[0])
+    big_tops = set(big)
     for t in hierarchy.tops:
-        if hierarchy.size[t] < min_cluster_size:
+        if int(t) not in big_tops:
             fall_out(int(t), 0, 0.0)
 
     while queue:
@@ -554,7 +568,7 @@ def _condense_simultaneous(
             continue
         lam = 1.0 / d
         child_nodes = [int(c) for c in node_children(node)]
-        big_children = [c for c in child_nodes if hierarchy.size[c] >= min_cluster_size]
+        big_children = [c for c in child_nodes if is_big(c, d)]
 
         if len(big_children) >= 2:
             big_set = set(big_children)
@@ -695,6 +709,8 @@ def _validate_sparse_distance_graph(graph) -> csr_matrix:
     silently summed, and symmetry includes explicitly stored zero-distance
     entries. Diagonal entries are allowed and ignored by the HDBSCAN core.
     """
+    if not issparse(graph):
+        raise ValueError("graph must be a SciPy sparse distance matrix; dense arrays erase explicit zero-distance edges")
     try:
         coo = coo_matrix(graph, dtype=float)
     except Exception as exc:
@@ -774,14 +790,14 @@ def hdbscan(
 ) -> HDBSCANResult:
     """Run HDBSCAN* on a symmetric sparse distance graph.
 
-    Stored entries of ``graph`` are the known pairwise distances; missing
+    ``graph`` must be sparse. Stored entries are the known pairwise distances; missing
     entries mean "farther than the search radius". ``weights`` gives the
     number of observations at each position (default 1).
 
     ``core_distance_floor`` raises every core distance below it to it, and
     so every mutual reachability distance too. With the default 0 the
-    result is standard HDBSCAN*. A positive floor limits the density of
-    stacked observations (see the README).
+    result uses unmodified density scales. A positive floor limits the
+    density of stacked observations (documented in the README).
     """
     validate_parameters(
         min_cluster_size=min_cluster_size,

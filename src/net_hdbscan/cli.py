@@ -12,6 +12,7 @@ from .config import HDBSCANConfig, read_group_params, read_group_universe
 from .network import DEFAULT_MAX_NEIGHBOR_PAIRS, DEFAULT_VERTEX_DIGITS
 from .pipeline import _summary_frame, cluster_files, cluster_files_by_column
 from .osm_source import fetch_osm_network, parse_bbox, _validate_selector
+from .region import parse_circle
 
 app = typer.Typer(add_completion=False, no_args_is_help=True, rich_markup_mode=None)
 
@@ -54,7 +55,9 @@ def _print_summary(summary: pd.DataFrame) -> None:
 @app.command('fetch-network')
 def fetch_network_command(
     source: str = typer.Option(..., '--source', help="Explicit source; currently only 'osm'."),
-    bbox: str = typer.Option(..., '--bbox', help='EPSG:4326 west,south,east,north.'),
+    bbox: str | None = typer.Option(None, '--bbox', help='EPSG:4326 west,south,east,north; alternative to --center.'),
+    center: str | None = typer.Option(None, '--center', help='EPSG:4326 longitude,latitude; requires --radius-km.'),
+    radius_km: float | None = typer.Option(None, '--radius-km', help='Geodesic circle radius in kilometers; requires --center.'),
     osm_profile: str | None = typer.Option(None, '--osm-profile', help='OSM way-access profile (not a travel-time model).'),
     osm_filter: str | None = typer.Option(None, '--osm-filter', help='Alternative bracketed OSM way-tag filter.'),
     osm_cache_dir: Path | None = typer.Option(None, '--osm-cache-dir', help='Immutable cached network root.'),
@@ -63,10 +66,19 @@ def fetch_network_command(
     if source != 'osm':
         raise typer.BadParameter("only --source osm is currently implemented")
     try:
-        area = parse_bbox(bbox)
+        if bbox is not None:
+            if center is not None or radius_km is not None:
+                raise ValueError('choose --bbox or --center with --radius-km, not both')
+            area = parse_bbox(bbox)
+        else:
+            if center is None or radius_km is None:
+                raise ValueError('provide --bbox or both --center and --radius-km')
+            parse_circle(center, radius_km)
+            area = None
         profile, custom_filter = _validate_selector(osm_profile, osm_filter)
-        path = fetch_osm_network(bbox=area, profile=profile,
-                                 custom_filter=custom_filter, cache_dir=osm_cache_dir)
+        path = fetch_osm_network(bbox=area, center=center, radius_km=radius_km,
+                                 profile=profile, custom_filter=custom_filter,
+                                 cache_dir=osm_cache_dir)
     except ValueError as exc:
         raise typer.BadParameter(str(exc)) from exc
     typer.echo(f'Network: {path}')
@@ -79,6 +91,8 @@ def cluster(
     network: Path | None = typer.Option(None, "--network", help="Explicit projected line network; alternative to --network-source."),
     network_source: str | None = typer.Option(None, '--network-source', help="Explicit network provider: 'osm' only."),
     bbox: str | None = typer.Option(None, '--bbox', help='For OSM: EPSG:4326 west,south,east,north.'),
+    center: str | None = typer.Option(None, '--center', help='For OSM: EPSG:4326 longitude,latitude.'),
+    radius_km: float | None = typer.Option(None, '--radius-km', help='For OSM: geodesic radius in kilometers.'),
     osm_profile: str | None = typer.Option(None, '--osm-profile', help='OSM way-access profile, not directional routing.'),
     osm_filter: str | None = typer.Option(None, '--osm-filter', help='Alternative OSM way-tag filter.'),
     osm_cache_dir: Path | None = typer.Option(None, '--osm-cache-dir', help='Network cache location.'),
@@ -135,20 +149,26 @@ def cluster(
     # Source selection is an explicit data-model choice, not inferred from
     # missing network input, observational categories or geographic location.
     if network is not None:
-        if any(value is not None for value in (network_source, bbox, osm_profile, osm_filter, osm_cache_dir)):
+        if any(value is not None for value in (network_source, bbox, center, radius_km, osm_profile, osm_filter, osm_cache_dir)):
             raise typer.BadParameter('--network cannot be combined with OSM source options')
     else:
         if network_source != 'osm':
             raise typer.BadParameter('supply --network, or explicitly select --network-source osm')
-        if bbox is None:
-            raise typer.BadParameter('--network-source osm requires --bbox')
+        if bbox is not None:
+            if center is not None or radius_km is not None:
+                raise typer.BadParameter('choose --bbox or --center with --radius-km, not both')
+        elif center is None or radius_km is None:
+            raise typer.BadParameter('--network-source osm requires --bbox or both --center and --radius-km')
         if network_layer is not None:
             raise typer.BadParameter('--network-layer is only valid with a user-supplied --network')
         try:
-            area = parse_bbox(bbox)
+            area = parse_bbox(bbox) if bbox is not None else None
+            if bbox is None:
+                parse_circle(center, radius_km)
             profile, custom_filter = _validate_selector(osm_profile, osm_filter)
-            network = fetch_osm_network(bbox=area, profile=profile,
-                                        custom_filter=custom_filter, cache_dir=osm_cache_dir)
+            network = fetch_osm_network(bbox=area, center=center, radius_km=radius_km,
+                                        profile=profile, custom_filter=custom_filter,
+                                        cache_dir=osm_cache_dir)
         except ValueError as exc:
             raise typer.BadParameter(str(exc)) from exc
         typer.echo(f'Using cached OSM network: {network}')

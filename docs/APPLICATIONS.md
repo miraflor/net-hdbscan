@@ -5,12 +5,22 @@
 | Area | Observed entities | Candidate network | Distance/model judgment | Appropriate entry point |
 | --- | --- | --- | --- | --- |
 | Urban and rural geography | Places, stations, events | Walkable paths, roads, rail linework | Undirected geometric path length is not car travel time | Geospatial line pipeline or OSM adapter |
-| Freshwater ecology | Species samples or sensors | River/stream linework | Direction and barriers may invalidate symmetric lengths; verify OSM topology | Validated linework; OSM tag filter only exploratory |
+| Freshwater ecology | Species samples or sensors | River/stream linework | Flow direction, connectivity and barriers may invalidate symmetric lengths; verify source topology | Validated linework; named OSM `waterways` profile or custom tag filter **only exploratory** |
 | Landscape ecology | Organism observations | Ecological corridors | Must define corridor cost and permeability; maps alone do not imply movement | User-provided projected lines or sparse distances |
 | Sociology | People, organizations | Relational/contact graph | Edge meaning and distance transform must be specified; no bbox is meaningful | Symmetric sparse-distance Python API |
 | Epidemiology | Cases or locations | Mobility/contact network | Temporal exposure and direction may dominate; shortest path is not transmission probability | External modeling then sparse-distance API |
 | Biology and anatomy | Sample locations | Vessel/duct centerlines | Flow direction, 3-D lengths, diameter/resistance are omitted by 2-D geospatial pipeline | External validated distance matrix when appropriate |
 | Infrastructure science | Sensors, defects, incidents | Pipeline/cable/water-distribution network | Check physical barriers, valves, direction and weights | Projected lines if symmetric length is valid |
+
+## Waterway observations: acquisition is not a flow model
+
+The named OSM `waterways` profile selects ways tagged `river`, `stream`, `canal` or `tidal_channel`. A bounding box or center-plus-radius geodesic circle constrains the **acquired line network**; it does not select or exclude aquatic observations. The circle clips network centerline geometry to a 360-sided geodesic boundary approximation. The resulting graph is still a **two-dimensional undirected geometric network**.
+
+For ecological observations, sensors or river-adjacent facilities, first justify whether **symmetric distance measured along centerlines** represents the process under study. Upstream/downstream flow, hydraulic resistance, seasonal inundation, waterfalls, dams, riverbank access, navigability, waterbody polygons and estuarine/coastal connectivity are not encoded. Disconnected branches and line crossings do not become connected merely because they look adjacent on a map. OSM map coverage is not evidence of validated hydrological topology.
+
+A circular network cut may truncate a reach connecting observations through geometry **outside** the circle; that can alter shortest paths and components. If the scientific object is connectivity of observations *within* a region rather than travel paths *confined to* that region, decide and document whether the network should be acquired with a wider buffer. Point-subset eligibility remains an explicit upstream decision. A custom prevalidated network can be supplied using `--network`; a hydrologically defined **symmetric** distance graph can be given to the sparse API if the scientific problem demands it.
+
+See the [geographic acquisition guide](GEOGRAPHIC_ACQUISITION.md) and the [network provenance contract](NETWORK_SOURCES.md).
 
 ## Stratification is not a default
 

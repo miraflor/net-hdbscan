@@ -62,11 +62,44 @@ provides that linework from an **explicit** OSM request; it cannot choose a
 scientific distance model. Directional flow/travel semantics and true 3-D
 lengths are not implied by any source profile.
 
-OSM requests must specify a bbox and exactly one OSM network profile or custom
-way-tag filter. The bounded request is cached immutably with source metadata,
-retrieval time, ODbL attribution and checksum. A cache hit is verified rather
-than silently refreshed; failures do not publish a partial entry. Regional
-extract processing (e.g., Geofabrik PBF) remains a separately planned adapter.
+OSM requests must specify exactly one explicit region—an EPSG:4326
+`west,south,east,north` bbox **or** `longitude,latitude` center and positive
+`radius_km`—and exactly one network selector (named profile or validated
+bracketed custom way-tag filter). Named `waterways` maps to the exact filter
+`[waterway~"^(river|stream|canal|tidal_channel)$"]`. This selects OSM ways;
+it does not supply downstream direction, navigability, flow cost or topology
+repair. No selection is inferred from the data.
+
+**Region semantics:** `parse_bbox` retains the earlier strict ordering and
+spherical area bound. `region.parse_circle` checks finite coordinates and
+radius, rejects polar and antimeridian-spanning circles, and delegates to a
+360-vertex WGS84 geodesic polygon built with `pyproj.Geod`. A geodesic polygon
+is a finite approximation of the ideal circle. Circle acquisition uses
+`OSMnx graph_from_polygon(..., truncate_by_edge=True)` while legacy bbox
+acquisition continues to use `graph_from_bbox`. After projection, circular
+network linework is intersected with the projected polygon and nonempty,
+positive-length line segments retained; bbox linework is not circle-clipped.
+Both region types limit line-network acquisition, **not point eligibility**.
+No eligibility filter is reintroduced in the CLI or pipeline.
+
+**Distance distinction:** `radius_km` is the geodesic download extent,
+`max_distance` is the geospatial algorithm's shortest-path discovery horizon
+in the projected network CRS's linear units, and `max_snap_distance` is
+an optional QA failure limit for observation-to-network snapping. These
+parameters serve separate purposes. Polygon clipping can change topology and
+shortest paths; no automatic buffer, gap repair or confluence repair occurs.
+
+**Cache and provenance:** old bbox `_request` metadata and adapter schema 1
+are retained byte-for-byte in the request key. Circle requests use adapter
+schema 2 with center/radius and boundary-segment count 360. Request hashes
+identify immutable cache entries; cache hits verify the exact request and
+SHA-256 of `network.gpkg`, with no network call. `source.json` stores UTC
+retrieval, OSMnx version, source license, projected CRS, feature count,
+clipping flag, effective waterway filter and network checksum. New entries
+are prepared and read-back-validated in a temporary directory before atomic
+per-directory publication; incomplete/corrupt entries are **not** silently
+replaced. Regional PBF extracts, HydroRIVERS downloads and flow-routing
+models are outside the current adapter scope.
 
 Optional `--group-col` performs independent clustering by arbitrary category.
 It never implies an industry, species, or social category as the default, and

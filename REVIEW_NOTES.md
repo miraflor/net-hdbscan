@@ -23,3 +23,9 @@ low-level sparse distance API. OSM one-way restrictions, hydrologic direction,
 physical 3-D paths, and travel-time costs are **not** silently implemented.
 The fixed historical test count above should not be interpreted as the current
 regression count. See `docs/APPLICATIONS.md` and `docs/NETWORK_SOURCES.md`.
+
+## Post-0.2.0 acquisition extension (unreleased)
+
+The opt-in OSM adapter now offers an explicit **waterways** way-tag profile and a **center-plus-radius** geodesic polygon region as an alternative to a bounding box. The region constrains **acquired line geometry only**; study-area filtering of input observations remains out of scope. Circle geometry uses a 360-segment WGS84 geodesic polygon and projected line clipping. Bbox cache identities remain compatible while circular requests have separately keyed metadata. The symmetric line-length model and HDBSCAN* core are unchanged.
+
+A local Windows checkout reported a passing full pytest suite after applying the implementation overlay. This is **not** evidence of a completed live OSM/Overpass smoke test or of current GitHub CI completion. Re-run all tests and verify required CI for the current PR head before merging. See `docs/GEOGRAPHIC_ACQUISITION.md` for detailed usage, source and modeling limits.

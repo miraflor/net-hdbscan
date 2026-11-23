@@ -223,3 +223,20 @@ def test_budget_failure_is_expected_value_error_and_no_oversized_search(monkeypa
     with pytest.raises(network.LocalSearchBudgetExceeded):
         list(network._pairs_through_vertices(g, snaps, max_distance=10.0, max_pairs=100))
     assert issubclass(network.LocalSearchBudgetExceeded, ValueError)
+
+
+def test_search_budget_error_names_bounding_box_and_remedies(monkeypatch):
+    from shapely.geometry import LineString
+    from net_hdbscan import network
+
+    graph = network.build_network_graph([LineString([(0, 0), (10, 0)])])
+    snaps = network.snap_points(graph, np.array([[5.0, 0.0]]))
+    monkeypatch.setattr(network, "_SEARCH_BATCH_VALUES", 1)
+    with pytest.raises(network.LocalSearchBudgetExceeded) as error:
+        list(network._pairs_through_vertices(graph, snaps, max_distance=10.0, max_pairs=100))
+    message = str(error.value)
+    assert "2 network vertices in the expanded search bounding box" in message
+    assert "5 float64 values" in message
+    assert "fixed budget is 1 values" in message
+    assert "smaller max_distance" in message
+    assert "_SEARCH_BATCH_VALUES" not in message

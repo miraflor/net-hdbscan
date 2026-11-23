@@ -84,7 +84,7 @@ def test_impossible_one_source_dijkstra_budget_fails_before_search(monkeypatch):
     graph = network.build_network_graph([LineString([(0, 0), (10, 0)])])
     positions = network.snap_points(graph, np.array([[5.0, 0.0]]))
     monkeypatch.setattr(network, "_SEARCH_BATCH_VALUES", 1)
-    with pytest.raises(network.LocalSearchBudgetExceeded, match="even with one source"):
+    with pytest.raises(network.LocalSearchBudgetExceeded, match="even for one source"):
         list(network._pairs_through_vertices(graph, positions,
              max_distance=10.0, max_pairs=100))
 

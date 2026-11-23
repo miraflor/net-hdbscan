@@ -46,12 +46,14 @@ DEFAULT_VERTEX_DIGITS = 11
 # positions). One pair needs roughly 100-200 bytes at peak.
 DEFAULT_MAX_NEIGHBOR_PAIRS = 20_000_000
 
+
 class LocalSearchBudgetExceeded(ValueError):
-    """A local dense Dijkstra search exceeds its configured output budget."""
+    """One local shortest-path search exceeds its fixed result-size budget."""
 
 
 # Memory budget (number of float64 values) for the dense result of one batch
-# of Dijkstra searches: sources x local nodes.
+# of Dijkstra searches: sources x (local vertices + sources + 2).
+# The source nodes and two dead ends count even if later sliced off.
 _SEARCH_BATCH_VALUES = 8_000_000
 
 # Target search work (sources x local network vertices) of one spatial batch.
@@ -585,8 +587,11 @@ def _pairs_through_vertices(graph: NetworkGraph, pos: Snaps, max_distance: float
         b = len(local) + 2
         if b + 1 > _SEARCH_BATCH_VALUES:
             raise LocalSearchBudgetExceeded(
-                "local Dijkstra result exceeds _SEARCH_BATCH_VALUES even with one source; "
-                "reduce the distance horizon or simplify the network"
+                f"one local shortest-path search requires {b + 1:,} float64 values "
+                f"for {len(local):,} network vertices in the expanded search bounding box "
+                f"(max_distance={max_distance:g}); fixed budget is "
+                f"{_SEARCH_BATCH_VALUES:,} values even for one source. "
+                "Use a smaller max_distance or a network with fewer vertices"
             )
         per_chunk = (isqrt(b * b + 4 * _SEARCH_BATCH_VALUES) - b) // 2
         if per_chunk < 1 or per_chunk * (b + per_chunk) > _SEARCH_BATCH_VALUES:

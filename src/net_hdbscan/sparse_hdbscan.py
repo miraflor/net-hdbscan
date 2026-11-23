@@ -609,9 +609,9 @@ def _stability(tree: CondensedTree, n_clusters: int):
     birth[tree.child[rows]] = tree.lambda_val[rows]
     cluster_parent[tree.child[rows]] = tree.parent[rows]
     cluster_size[tree.child[rows]] = tree.child_size[rows]
-    # Size of the root as scikit-learn counts it for max_cluster_size: the
-    # summed size of its child clusters.
-    cluster_size[0] = int(tree.child_size[(tree.parent == 0) & tree.child_is_cluster].sum())
+    # The root includes both child clusters and positions that fall out
+    # directly. Its actual population must obey max_cluster_size.
+    cluster_size[0] = int(tree.child_size[tree.parent == 0].sum())
     with np.errstate(invalid="ignore"):
         contribution = (tree.lambda_val - birth[tree.parent]) * tree.child_size
     stability = np.zeros(n_clusters)
@@ -751,7 +751,12 @@ def _validate_sparse_distance_graph(graph) -> csr_matrix:
 
 
 def _validate_weights(weights, n: int) -> np.ndarray:
-    """Return positive integer multiplicities without silently truncating input."""
+    """Convert exact positive integer multiplicities to int64 safely.
+
+    Float arrays are accepted only within their *dtype-specific* consecutive
+    integer range, to avoid silently treating a rounded number as the intended
+    integer. Use int arrays or decimal strings for very large values.
+    """
     if weights is None:
         return np.ones(n, dtype=np.int64)
     raw = np.asarray(weights)
@@ -759,22 +764,66 @@ def _validate_weights(weights, n: int) -> np.ndarray:
         raise ValueError("weights must hold one integer >= 1 per position")
 
     limit = np.iinfo(np.int64).max
+
+    def parse_exact_float(value):
+        # Float32 has only 24 significant binary digits, float64 only 53;
+        # the highest consecutive exact nonnegative integer is 2**p - 1.
+        bits = np.finfo(type(value)).nmant + 1
+        cap = min(1 << bits, 1 << 63)
+        if not (np.isfinite(value) and 1 <= value < cap and value == np.floor(value)):
+            raise ValueError(
+                "float weights must be exact positive integers within their "
+                "dtype's consecutive-integer range; use integer inputs for larger weights"
+            )
+        return int(value)
+
     if np.issubdtype(raw.dtype, np.integer):
         if (raw < 1).any():
-            raise ValueError("weights must hold one finite integer >= 1 per position")
+            raise ValueError("weights must hold one integer >= 1 per position")
         if np.issubdtype(raw.dtype, np.unsignedinteger) and (raw > limit).any():
             raise ValueError("weights exceed the supported int64 range")
-        return raw.astype(np.int64, copy=False)
+        out = raw.astype(np.int64, copy=False)
+    elif np.issubdtype(raw.dtype, np.floating):
+        cap = min(1 << (np.finfo(raw.dtype).nmant + 1), 1 << 63)
+        valid = np.isfinite(raw) & (raw >= 1) & (raw < cap) & (raw == np.floor(raw))
+        if not valid.all():
+            raise ValueError(
+                "float weights must be exact positive integers within their "
+                "dtype's consecutive-integer range; use integer inputs for larger weights"
+            )
+        out = raw.astype(np.int64)
+    elif raw.dtype.kind in ("U", "S", "O"):
+        from decimal import Decimal, InvalidOperation
+        values = []
+        for value in raw:
+            if isinstance(value, (bool, np.bool_)):
+                raise ValueError("weights must hold one integer >= 1 per position")
+            if isinstance(value, (int, np.integer)):
+                integer = int(value)
+            elif isinstance(value, (float, np.floating)):
+                integer = parse_exact_float(value)
+            elif isinstance(value, (str, Decimal)):
+                try:
+                    number = Decimal(value)
+                except (InvalidOperation, TypeError, ValueError) as exc:
+                    raise ValueError("weights must hold one integer >= 1 per position") from exc
+                if not (number.is_finite() and 1 <= number <= limit
+                        and number == number.to_integral_value()):
+                    raise ValueError("weights must hold one finite integer within the int64 range")
+                integer = int(number)
+            else:
+                raise ValueError("weights must hold one integer >= 1 per position")
+            if not 1 <= integer <= limit:
+                raise ValueError("weights must hold one finite integer within the int64 range")
+            values.append(integer)
+        out = np.asarray(values, dtype=np.int64)
+    else:
+        raise ValueError("weights must hold one integer >= 1 per position")
 
-    try:
-        numeric = np.asarray(weights, dtype=float)
-    except (TypeError, ValueError) as exc:
-        raise ValueError("weights must hold one integer >= 1 per position") from exc
-    valid = np.isfinite(numeric) & (numeric >= 1) & (numeric <= float(limit)) & (numeric == np.floor(numeric))
-    if not valid.all():
-        raise ValueError("weights must hold one finite integer >= 1 per position")
-    return numeric.astype(np.int64)
-
+    # Downstream cluster sizes and weighted-neighbour scans use int64 sums.
+    if sum(int(value) for value in out) > limit:
+        raise ValueError("sum of weights exceeds the supported int64 range")
+    return out
 
 def hdbscan(
     graph: csr_matrix,
@@ -894,15 +943,43 @@ def _finalize_condensed_tree(
     birth, cluster_parent, cluster_size, stability = (
         _stability(tree, k) if precomputed is None else precomputed
     )
+    # The forest root is virtual. It may be selected only if a real
+    # cluster survives to a positive lambda (including a supported
+    # compressed duplicate stack), not merely because disconnected
+    # components were attached to a synthetic lambda=0 root.
+    root_has_support = bool(np.any((tree.parent == 0) & (tree.lambda_val > 0)))
+
+    # The hierarchy's synthetic root describes the *whole* dataset, including
+    # components that fall out at lambda=0. A selected root, however, labels
+    # only positions surviving its selection threshold (see below). Apply the
+    # EOM max_cluster_size cap to that eligible membership, not to unrelated
+    # disconnected noise. Preserve cluster_size[0] for hierarchy reporting.
+    selection_sizes = cluster_size
+    if allow_single_cluster and max_cluster_size is not None and cluster_selection_method == "eom":
+        exit_lambda_for_root = np.zeros(n, dtype=float)
+        position_rows = ~tree.child_is_cluster
+        exit_lambda_for_root[tree.child[position_rows]] = tree.lambda_val[position_rows]
+        if epsilon != 0.0:
+            root_threshold = 1.0 / epsilon
+        else:
+            root_rows = tree.parent == 0
+            root_threshold = (float(tree.lambda_val[root_rows].max())
+                              if root_rows.any() else np.inf)
+        eligible = exit_lambda_for_root >= root_threshold
+        selection_sizes = cluster_size.copy()
+        # Python-integer addition prevents a silent np.int64 accumulation
+        # overflow. The public fit path separately validates total weight.
+        selection_sizes[0] = sum(int(x) for x in weights[eligible])
+
     selected = _select(
         birth,
         cluster_parent,
-        cluster_size,
+        selection_sizes,
         stability,
         method=cluster_selection_method,
         epsilon=epsilon,
         max_cluster_size=max_cluster_size,
-        allow_single_cluster=allow_single_cluster,
+        allow_single_cluster=bool(allow_single_cluster and root_has_support),
     )
 
     cluster_selected = np.zeros(k, dtype=bool)

@@ -30,13 +30,8 @@ class PostCommitCleanupError(OutputPublicationError):
 
 
 # Files GDAL reads to build a shapefile's geometry, attributes, encoding and
-# CRS. Spatial indexes (.qix, .sbn, .sbx) and metadata (.shp.xml) do not
-# change the data and are excluded.
-_SHAPEFILE_MEMBER_SUFFIXES = frozenset({".shp", ".shx", ".dbf", ".prj", ".cpg"})
-
-
-# These are the essential logical members of an ESRI shapefile. Ignore
-# unrelated datasets (roads.old.shp), optional indices, and .shp.xml metadata.
+# CRS. Unrelated datasets sharing a name prefix (roads.old.shp), spatial
+# indexes (.qix, .sbn, .sbx) and metadata (.shp.xml) are excluded.
 _SHAPEFILE_MEMBER_SUFFIXES = frozenset({".shp", ".shx", ".dbf", ".prj", ".cpg"})
 
 

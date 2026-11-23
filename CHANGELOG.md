@@ -1,6 +1,14 @@
 # Changelog
 
-## 0.3.1 — corrective hardening (release candidate; tag after verification)
+## Unreleased
+
+- Guard virtual-root selection against unrelated disconnected points while preserving valid compressed duplicate stacks.
+- Enforce EOM `max_cluster_size` against the virtual root's actual eligible membership, excluding disconnected noise; retain its full population for hierarchy reporting.
+- Validate sparse-API weight integers exactly (including large decimal strings), reject unsafe floats and overflowing totals.
+- Correct the local shortest-path memory-budget explanation; remove a duplicate shapefile suffix constant.
+- Add deterministic regression and negative-path tests for these corrections.
+
+## 0.3.1 — 2026-11-23 — corrective hardening
 
 - Correct weighted duplicate stack condensation in the simultaneous and binary hierarchy paths.
 - Bound Dijkstra output allocations including source nodes. Fail fast with a clear value error if even one source exceeds the budget; no implicit memory overrun.

@@ -5,14 +5,14 @@
 - Correct weighted duplicate stack condensation in the simultaneous and binary hierarchy paths.
 - Bound the Dijkstra result allocation by counting source nodes; reject an impossible one-source budget.
 - Hash entire directory inputs and shapefile sidecars, with name-sensitive multi-file checksums.
-- Canonicalize integral floating group keys; reject dense distance arrays; clarify parameter errors.
+- Canonicalize integral floating group keys; preserve distinct blank/null groups across pandas versions and protect internal output tokens; reject dense distance arrays; clarify parameter errors.
 - Fix version provenance, declare pyproj directly, extend CI to Python 3.10–3.13.
 - Clarify frequent tied-distance differences from scikit-learn and zero-strength membership for stacked points.
 - Retain historical `groups_outside_universe` warning semantics in the patch release.
 - Keep the existing `v0.3.0` tag immutable.
 
 
-## Unreleased — optional network acquisition, waterways and geodesic circles
+## 0.3.0 — 2026-11-23 (OSM waterways and geodesic circular network acquisition)
 
 - Add the named `--osm-profile waterways` shortcut for OSM `river`, `stream`, `canal` and `tidal_channel` ways, without introducing hydrological or directional routing semantics.
 - Add `--center longitude,latitude --radius-km R` to both `cluster` and `fetch-network` as a mutually exclusive alternative to `--bbox`. Build a 360-sided WGS84 geodesic circle and clip the retrieved projected line network to its polygon boundary.

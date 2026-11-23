@@ -46,6 +46,10 @@ DEFAULT_VERTEX_DIGITS = 11
 # positions). One pair needs roughly 100-200 bytes at peak.
 DEFAULT_MAX_NEIGHBOR_PAIRS = 20_000_000
 
+class LocalSearchBudgetExceeded(ValueError):
+    """A local dense Dijkstra search exceeds its configured output budget."""
+
+
 # Memory budget (number of float64 values) for the dense result of one batch
 # of Dijkstra searches: sources x local nodes.
 _SEARCH_BATCH_VALUES = 8_000_000
@@ -580,12 +584,13 @@ def _pairs_through_vertices(graph: NetworkGraph, pos: Snaps, max_distance: float
         # Integer arithmetic prevents rounding above the advertised budget.
         b = len(local) + 2
         if b + 1 > _SEARCH_BATCH_VALUES:
-            raise MemoryError(
+            raise LocalSearchBudgetExceeded(
                 "local Dijkstra result exceeds _SEARCH_BATCH_VALUES even with one source; "
                 "reduce the distance horizon or simplify the network"
             )
         per_chunk = (isqrt(b * b + 4 * _SEARCH_BATCH_VALUES) - b) // 2
-        assert per_chunk >= 1 and per_chunk * (b + per_chunk) <= _SEARCH_BATCH_VALUES
+        if per_chunk < 1 or per_chunk * (b + per_chunk) > _SEARCH_BATCH_VALUES:
+            raise RuntimeError('internal error: Dijkstra batch size violates its budget')
         for c0 in range(0, len(batch), per_chunk):
             sources = batch[c0 : c0 + per_chunk]
             S = len(sources)

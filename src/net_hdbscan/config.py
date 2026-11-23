@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import dataclasses
 import math
+from decimal import Decimal, InvalidOperation
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Mapping
@@ -211,6 +212,33 @@ def group_key(value) -> str:
     return BLANK_GROUP_KEY if text.strip() == "" else text
 
 
+def numeric_group_key(key: str) -> str:
+    """Normalize numeric group identities without binary floating-point loss.
+
+    Works for nullable integer and floating columns; normalization is applied
+    to both observed values and CSV keys, so scientific notation matches even
+    when Python spells the observed value with an exponent. Text group columns
+    keep their original labels and are never coerced.
+    """
+    if key in {NULL_GROUP_KEY, BLANK_GROUP_KEY}:
+        return key
+    text = str(key).strip()
+    try:
+        number = Decimal(text)
+    except InvalidOperation:
+        return key
+    if not number.is_finite():
+        return key
+    if number.is_zero():
+        return "0"
+    # Prevent pathological CSV exponents/precision from expanding to enormous
+    # fixed-point strings, rather than consuming unbounded RAM.
+    if len(text) > 4096 or abs(number.adjusted()) > 4096:
+        raise ValueError(f"numeric group key is too large to normalize: {text[:64]!r}")
+    fixed = format(number, "f")
+    return fixed.rstrip("0").rstrip(".") if "." in fixed else fixed
+
+
 def group_display(key: str) -> str:
     """Unambiguous user-facing text for an internal group key."""
     if key == NULL_GROUP_KEY:
@@ -353,6 +381,7 @@ __all__ = [
     "group_display",
     "group_key",
     "normalize_group_params",
+    "numeric_group_key",
     "read_group_params",
     "read_group_universe",
     "resolve_group_config",

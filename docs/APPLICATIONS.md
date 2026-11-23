@@ -37,7 +37,7 @@ See the [geographic acquisition guide](GEOGRAPHIC_ACQUISITION.md) and the [netwo
 ## Example: a relational graph without geographic coordinates
 
 The network-distance core does not require longitude, latitude, line geometry,
-OSM or a `--group-col`. Consider an undirected, unweighted relation graph;
+OSM or a `--group-col`. Consider an undirected relation graph;
 one possible (and contestable) distance is a weighted shortest path
 between nodes. The bridge between triangles has length two:
 
@@ -59,7 +59,7 @@ adj = coo_matrix((np.r_[edge_lengths, edge_lengths],
 d = shortest_path(adj, directed=False, unweighted=False)
 
 # The sparse clustering input stores only known finite distances
-# within a declared two-hop horizon; absent pairs remain absent.
+# within a declared distance horizon of 2; absent pairs remain absent.
 keep = np.isfinite(d) & (d > 0) & (d <= 2)
 i, j = np.nonzero(keep)
 distance_graph = csr_matrix((d[i, j], (i, j)), shape=(n, n))

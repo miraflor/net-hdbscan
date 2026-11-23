@@ -57,7 +57,10 @@ def test_errors_are_reported(files, tmp_path):
     assert params_without_groups.exit_code != 0
     runner.invoke(app, base_args(files, tmp_path / "c"))
     again = runner.invoke(app, base_args(files, tmp_path / "c"))
-    assert again.exit_code != 0 and isinstance(again.exception, FileExistsError)
+    # Existing output is a user error: one message, exit code 1, no traceback.
+    assert again.exit_code == 1
+    assert "Error:" in again.output and "--force" in again.output
+    assert "Traceback (most recent call last)" not in again.output
 
 
 def test_cli_reports_excluded_rows_and_undeclared_groups(files, tmp_path, points):
@@ -81,9 +84,11 @@ def test_cli_fails_closed_when_the_pair_limit_is_reached(files, tmp_path):
     args = base_args(files, tmp_path / "out")
     args[args.index("--max-distance") + 1] = "3000"
     result = runner.invoke(app, args + ["--distance-mode", "adaptive", "--max-neighbor-pairs", "3000"])
-    assert result.exit_code != 0
-    assert isinstance(result.exception, NeighborPairLimitError)
+    assert result.exit_code == 1
+    assert "max_neighbor_pairs" in result.output
+    assert "Traceback (most recent call last)" not in result.output
     assert not (tmp_path / "out").exists()
+    assert NeighborPairLimitError.__mro__[1] is ValueError  # reported through the CLI's user-error path
 
 
 def test_cluster_help_has_no_boundary_options():

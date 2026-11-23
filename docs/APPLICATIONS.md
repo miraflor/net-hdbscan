@@ -38,8 +38,8 @@ See the [geographic acquisition guide](GEOGRAPHIC_ACQUISITION.md) and the [netwo
 
 The network-distance core does not require longitude, latitude, line geometry,
 OSM or a `--group-col`. Consider an undirected, unweighted relation graph;
-one possible (and contestable) distance is the number of edges in the
-shortest path between nodes:
+one possible (and contestable) distance is a weighted shortest path
+between nodes. The bridge between triangles has length two:
 
 ```python
 import numpy as np
@@ -53,9 +53,10 @@ edges = np.array([(0, 1), (1, 2), (2, 0),
                   (3, 4), (4, 5), (5, 3), (2, 3)])
 row, col = edges.T
 n = 6
-adj = coo_matrix((np.ones(2 * len(row)),
+edge_lengths = np.where((row == 2) & (col == 3), 2.0, 1.0)
+adj = coo_matrix((np.r_[edge_lengths, edge_lengths],
                   (np.r_[row, col], np.r_[col, row])), shape=(n, n)).tocsr()
-d = shortest_path(adj, directed=False, unweighted=True)
+d = shortest_path(adj, directed=False, unweighted=False)
 
 # The sparse clustering input stores only known finite distances
 # within a declared two-hop horizon; absent pairs remain absent.

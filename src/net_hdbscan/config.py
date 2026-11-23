@@ -67,7 +67,7 @@ class HDBSCANConfig:
         ``"fixed"`` (default) uses ``max_distance`` exactly. ``"adaptive"``
         treats it as a hard ceiling and grows a smaller search radius until
         the flat result reaches a stable low-truncation plateau, the ceiling
-        is reached, or the pair budget prevents a larger trial.
+        is reached. Exceeding the pair budget aborts the entire run.
     min_distance
         Optional first radius in adaptive mode. If omitted, a geometric
         ladder is derived from ``max_distance``, ``distance_growth`` and
@@ -179,8 +179,10 @@ class HDBSCANConfig:
 # strings. User-facing missing-group tokens stay ``__null__`` and ``__blank__``.
 NULL_GROUP_TOKEN = "__null__"
 BLANK_GROUP_TOKEN = "__blank__"
-NULL_GROUP_KEY = "\0net_hdbscan:null"
-BLANK_GROUP_KEY = "\0net_hdbscan:blank"
+# Control-A is not a C string terminator: unlike NUL it remains distinct
+# in pandas 2.x unique()/groupby. Never accept these as raw group names.
+NULL_GROUP_KEY = "\x01net_hdbscan:null"
+BLANK_GROUP_KEY = "\x01net_hdbscan:blank"
 
 _INT_FIELDS = {"min_cluster_size", "min_samples", "max_cluster_size", "distance_steps"}
 _FLOAT_FIELDS = {
@@ -201,7 +203,11 @@ def group_key(value) -> str:
     """Internal key of a group value, keeping missing values distinct from text."""
     if value is None or (not isinstance(value, str) and pd.isna(value)):
         return NULL_GROUP_KEY
+    if isinstance(value, (float, np.floating)) and np.isfinite(value) and float(value).is_integer():
+        value = int(value)
     text = str(value)
+    if text in {NULL_GROUP_KEY, BLANK_GROUP_KEY}:
+        raise ValueError("input contains reserved internal group key")
     return BLANK_GROUP_KEY if text.strip() == "" else text
 
 

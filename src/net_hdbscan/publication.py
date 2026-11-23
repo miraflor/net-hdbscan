@@ -30,10 +30,48 @@ class PostCommitCleanupError(OutputPublicationError):
 
 
 def _hash(path: Path) -> str:
+    """Hash all members of directory or shapefile datasets, not just .shp.
+
+    Single ordinary files retain their bytewise SHA-256. Multi-file inputs
+    bind every member's relative filename, length and content into one digest.
+    """
+    path = Path(path)
+    if path.is_symlink():
+        raise ValueError(f"refusing symlink input: {path}")
+    if path.is_dir():
+        root = path
+        files = sorted(
+            (p for p in path.rglob("*") if p.is_file() or p.is_symlink()),
+            key=lambda p: p.relative_to(path).as_posix(),
+        )
+    elif path.is_file() and path.suffix.lower() == ".shp":
+        root = path.parent
+        files = sorted(
+            (p for p in root.iterdir()
+             if p.name.startswith(path.stem + ".") and (p.is_file() or p.is_symlink())),
+            key=lambda p: p.name,
+        )
+    elif path.is_file():
+        root = path.parent
+        files = [path]
+    else:
+        raise FileNotFoundError(f"input dataset is not a regular file or directory: {path}")
+
+    if not files:
+        raise ValueError(f"input dataset is empty: {path}")
+    multifile = path.is_dir() or path.suffix.lower() == ".shp"
     h = hashlib.sha256()
-    with path.open("rb") as stream:
-        for chunk in iter(lambda: stream.read(1024 * 1024), b""):
-            h.update(chunk)
+    for member in files:
+        if member.is_symlink() or not member.is_file():
+            raise ValueError(f"refusing non-regular dataset member: {member}")
+        if multifile:
+            name = member.relative_to(root).as_posix().encode("utf-8")
+            h.update(len(name).to_bytes(8, "big"))
+            h.update(name)
+            h.update(member.stat().st_size.to_bytes(8, "big"))
+        with member.open("rb") as stream:
+            for chunk in iter(lambda: stream.read(1024 * 1024), b""):
+                h.update(chunk)
     return h.hexdigest()
 
 
